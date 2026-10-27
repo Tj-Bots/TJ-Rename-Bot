@@ -55,7 +55,7 @@ def _saved_settings():
 def check_update():
     """Fast-forward to the remote branch. Returns True when new code was installed."""
     if os.environ.pop("TJ_UPDATED", None):
-        return False  # just re-executed after an update
+        return False
     if os.getenv("AUTO_UPDATE", "true").strip().lower() in ("0", "false", "no", "off"):
         return False
     if not os.path.isdir(os.path.join(ROOT, ".git")):

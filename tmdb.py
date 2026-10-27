@@ -166,7 +166,7 @@ async def get_auto_cover(filename, out_path):
             _cache[key] = await asyncio.to_thread(_find_poster_path, title, year)
             if len(_cache) > 300:
                 _cache.clear()
-        path = (_cache[key] or {}).get("b")  # landscape backdrop: matches the 16:9 video frame
+        path = (_cache[key] or {}).get("b")
         if not path:
             return None
         raw = await asyncio.to_thread(_http_bytes, f"{IMG_BASE}w1280{path}")
@@ -220,11 +220,8 @@ async def get_poster_bytes(info):
         return None
 
 
-# ---------- /poster browser (DD Bypass style) ----------
 IMG_BASE = "https://image.tmdb.org/t/p/"
 SEARCH_PAGES = 2
-# include_image_language for /images. Empty = every language. Tested live: any
-# language list *hides* images (872585: 224 posters unfiltered vs 5 filtered).
 IMAGE_LANGS = os.getenv("TMDB_IMAGE_LANGS", "").strip()
 _LANG_RANK = {"en": 0, None: 1}
 
@@ -248,7 +245,7 @@ def _search_titles(title, year, raw):
         if out:
             break
     if year:
-        out.sort(key=lambda r: r["year"] != year)  # stable: same-year hits first
+        out.sort(key=lambda r: r["year"] != year)
     return out[:40]
 
 

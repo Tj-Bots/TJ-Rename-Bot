@@ -12,7 +12,6 @@ import re
 from pyrogram import enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# ---- button colors: exact port of Leech-TJ bot/helper/telegram_helper/button_build.py ----
 DANGER_KEYS = ("❌", "✘", "close", "cancel", "no!", "delete", "remove", "reset", "clear", "unban")
 SUCCESS_KEYS = ("✓", "✅", "yes!", "done", "activate", "continue", "buy", "get test")
 PRIMARY_KEYS = ("◀️", "▶️", "⌫", "♻️", "view in", "page ", "⏮", "⏭", "‹", "›", "«", "»")
@@ -75,7 +74,6 @@ def menu(rows):
     return InlineKeyboardMarkup(out)
 
 
-# ---------- small pure helpers (used by the screens) ----------
 def onoff(v):
     return "✅ ON" if v else "❌ OFF"
 
@@ -106,12 +104,8 @@ def bar(percent, length=12):
 
 
 class _LegacyTheme:
-    SEP = "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
-    FOOTER_LINK = "<b><a href='https://t.me/Tj_Bots'>❤️ Powered By 𝗧𝗝 𝗕𝗼𝘁𝘀 ❤️</a></b>"
 
-    # ---------- generic buttons ----------
     BT_BACK = "🔙 Back"
-    BT_BACK_HOME = "🔙 Back Home"
     BT_CLOSE = "❌ Close"
 
     START = (
@@ -127,36 +121,9 @@ class _LegacyTheme:
     )
 
     MODE_NAMES = {"ask": "❓ Ask", "video": "🎥 Video", "file": "📁 File", "swap": "🔄 Swap"}
-    RENAME_NAMES = {"ask": "❓ Ask", "yes": "✓", "no": "✘"}
     PLAN_NAMES = {"free": "🎯 Free", "test": "🧪 Test", "gold": "🥇 Gold", "ultra": "👑 Ultra", "admin": "👑 Admin"}
 
-    # ==================== /settings (Leech-TJ style) ====================
-    # Legacy /settings template (pre-USET). Kept so an older חדש.py loaded with this theme.py won't crash.
-    SETTINGS = (
-        "⚙️ <b>Usᴇʀ Pᴇʀsᴏɴᴀʟ Sᴇᴛᴛɪɴɢs</b>\n"
-        "<blockquote>╭ 📍 <b>Mᴏᴅᴇ:</b> <code>{mode}</code>\n"
-        "┊ ✏️ <b>Rᴇɴᴀᴍᴇ:</b> <code>{rename}</code>\n"
-        "┊ 📸 <b>Sᴄʀᴇᴇɴsʜᴏᴛs:</b> <code>{screenshots}</code>\n"
-        "┊ 🙈 <b>Sᴘᴏɪʟᴇʀ:</b> <code>{spoiler}</code>\n"
-        "┊ 🖼 <b>Aᴜᴛᴏ Tʜᴜᴍʙ:</b> <code>{auto_thumb}</code>\n"
-        "┊ 🏷 <b>Pʟᴀɴ:</b> <code>{plan}</code>\n"
-        "╰ 📊 <b>Tᴏᴅᴀʏ:</b> <code>{quota}</code></blockquote>"
-    )
 
-    USET_HOME = (
-        "㊂ <b><u>Usᴇʀ Sᴇᴛᴛɪɴɢs :</u></b>\n\n"
-        "┎👤 <b>Name :</b> {name} ( <code>{id}</code> )\n"
-        "┠🔖 <b>Username :</b> {username}\n"
-        "┠🆔 <b>Telegram DC :</b> {dc}\n"
-        "┖🗣️ <b>Language :</b> {lang}\n\n"
-        "<blockquote>╭ 📤 <b>Upload:</b> <code>{mode}</code> | ✏️ <b>Rename:</b> <code>{rename}</code>\n"
-        "┊ 🖼 <b>Thumb:</b> <code>{thumb}</code> | 🎬 <b>Auto Thumb:</b> <code>{auto_thumb}</code>\n"
-        "┊ 📝 <b>Caption:</b> <code>{caption}</code>\n"
-        "┊ 🔤 <b>Name Rules:</b> <code>{name_rules}</code>\n"
-        "┊ 📸 <b>Screenshots:</b> <code>{screenshots}</code> | 🙈 <b>Spoiler:</b> <code>{spoiler}</code>\n"
-        "╰ 🏷 <b>Plan:</b> <code>{plan}</code> | 📊 <b>Today:</b> <code>{quota}</code></blockquote>\n\n"
-        "<i>Choose a category below 👇</i>"
-    )
     USET_HOME_BTNS = {
         "upload": "📤 Upload Mode", "thumb": "🖼 Thumbnail & Cover",
         "caption": "📝 Caption & Vars", "name": "🔤 Prefix / Suffix / Remname",
@@ -164,34 +131,6 @@ class _LegacyTheme:
         "quota": "📊 Quota & Plan", "reset": "♻️ Reset All Settings",
     }
 
-    USET_UPLOAD = (
-        "㊂ ✔️<b><u>Upload Mode : {name}</u></b>\n"
-        "┎📤 <b>Mode :</b> <code>{mode}</code>\n"
-        "┖✏️ <b>Rename :</b> <code>{rename}</code>\n\n"
-        "<blockquote>╭ <b>Video</b> — always upload as a streamable video\n"
-        "┊ <b>File</b> — always upload as a document\n"
-        "┊ <b>Swap</b> — auto-flip: video→file, file→video\n"
-        "╰ <b>Ask</b> — ask each time</blockquote>\n"
-        "<blockquote>╭ <b>Rename ✓</b> — always ask for a new name\n"
-        "┊ <b>Rename ✘</b> — always keep the original name\n"
-        "╰ <b>Rename ❓</b> — ask each time</blockquote>"
-    )
-    USET_THUMB = (
-        "㊂ ✔️<b><u>Thumbnail & Cover : {name}</u></b>\n"
-        "┎🖼️ <b>Custom Thumbnail :</b> <i>{thumb}</i>\n"
-        "┖🎬 <b>Auto Thumbnail :</b> <i>{auto_thumb}</i>\n\n"
-        "<blockquote>╭ <b>Set:</b> just send me any photo\n"
-        "┊ <b>Priority:</b> custom thumb → TMDB poster → video frame\n"
-        "╰ <b>Cover:</b> reply to a video with <code>/cover</code></blockquote>"
-    )
-    USET_THUMB_BTNS = {"view": "👁 View Thumb", "del": "🗑 Delete Thumb"}
-    USET_CAPTION = (
-        "㊂ ✔️<b><u>Caption : {name}</u></b>\n"
-        "┖📄 <b>Current :</b>\n<blockquote expandable><code>{caption}</code></blockquote>\n\n"
-        "<b>📌 Variables:</b>\n{vars}"
-    )
-    USET_CAPTION_BTNS = {"set": "✏️ Set Caption", "reset": "♻️ Reset Default"}
-    # RAW: inserted as an argument, never formatted itself
     CAPTION_VARS = (
         "<blockquote>╭ <code>{filename}</code> - file name\n"
         "┊ <code>{filesize}</code> - file size\n"
@@ -199,30 +138,6 @@ class _LegacyTheme:
         "┊ <code>{quality}</code> - 1080P, 720P, 4K…\n"
         "┊ <code>{duration}</code> - video length\n"
         "╰ <code>{ext}</code> - file extension</blockquote>"
-    )
-    USET_NAME = (
-        "㊂ ✔️<b><u>Filename Rules : {name}</u></b>\n"
-        "┎Ⓟ <b>Prefix :</b> <code>{prefix}</code>\n"
-        "┠Ⓢ <b>Suffix :</b> <code>{suffix}</code>\n"
-        "┖🌈 <b>Remname :</b> <code>{remname}</code>\n\n"
-        "<b>👀 Preview:</b>\n<blockquote><code>{example}</code>\n↳ <code>{preview}</code></blockquote>\n"
-        "<i>Applied to every file before upload (also when you type a new name).</i>"
-    )
-    USET_NAME_BTNS = {"prefix": "Ⓟ Prefix", "suffix": "Ⓢ Suffix", "remname": "🌈 Remname", "clear": "🗑 Clear All"}
-    NAME_EXAMPLE = "www.Site.com - Movie.Name.2023.1080p.WEB-DL.mkv"
-    USET_AUTO = (
-        "㊂ ✔️<b><u>Auto Thumbnail : {name}</u></b>\n"
-        "┎🎬 <b>Status :</b> <i>{auto_thumb}</i>\n"
-        "┖🔑 <b>TMDB :</b> <i>{tmdb}</i>\n\n"
-        "<blockquote>When ON and no custom thumb is set, the bot finds the movie/series "
-        "poster on TMDB (file name → caption → embedded title) and uses it as thumbnail, "
-        "plus the full poster as video cover. Falls back to a video frame.</blockquote>"
-    )
-    USET_MEDIA = (
-        "㊂ ✔️<b><u>Screenshots & Spoiler : {name}</u></b>\n"
-        "┎📸 <b>Screenshots :</b> <code>{screenshots}</code> per video\n"
-        "┖🙈 <b>Spoiler :</b> <i>{spoiler}</i>\n\n"
-        "<i>Pick how many screenshots to send after each video (0 = off).</i>"
     )
     USET_QUOTA = (
         "㊂ ✔️<b><u>Quota & Plan : {name}</u></b>\n"
@@ -234,13 +149,11 @@ class _LegacyTheme:
         "┠⚙️ <b>Parallel Tasks :</b> <code>{concurrent}</code>\n"
         "┖⏳ <b>Cooldown :</b> <code>{cooldown}</code>"
     )
-    USET_QUOTA_BTNS = {"plans": "⭐ View Plans", "refresh": "♻️ Refresh"}
     USET_RESET = (
         "♻️ <b>Reset all your settings?</b>\n"
         "<blockquote>Mode, rename, thumbnail, caption, prefix/suffix/remname, auto thumb, "
         "screenshots and spoiler go back to default.\nYour plan and quota are kept.</blockquote>"
     )
-    USET_RESET_BTNS = {"yes": "✅ Yes, reset"}
     USET_RESET_DONE = "Settings reset to default"
 
     USET_LABELS = {"caption": "📝 Caption", "prefix": "Ⓟ Prefix", "suffix": "Ⓢ Suffix", "remname": "🌈 Remname"}
@@ -259,13 +172,11 @@ class _LegacyTheme:
         "<blockquote>╰ <b>Current:</b> <code>{current}</code></blockquote>\n"
         "{hint}\n\n<i>Send the new value now, or tap Back.</i>"
     )
-    USET_PROMPT_BTNS = {"remove": "🗑 Remove"}
     USET_SAVED = "✅ {label} saved"
     USET_REMOVED = "🗑 {label} removed"
     USET_INVALID = "❌ <b>Invalid value:</b> <code>{err}</code>\n<i>Send it again or tap Back.</i>"
     NOT_SET = "Not set"
 
-    # ==================== /bsetting (admin bot settings) ====================
     BSET_HOME = (
         "㊂ <b><u>Bᴏᴛ Sᴇᴛᴛɪɴɢs :</u></b> <i>(admin)</i>\n\n"
         "┎📊 <b>Daily Quotas</b>\n"
@@ -277,32 +188,11 @@ class _LegacyTheme:
         "┖🛠 <b>Maintenance :</b> <code>{maint}</code>\n\n"
         "<i>Stored in MongoDB → <code>bot_config</code>. Changes apply instantly.</i>"
     )
-    BSET_GROUP = "㊂ ✔️<b><u>{title}</u></b>\n\n{lines}\n\n<i>Tap a value to edit it.</i>"
-    BSET_LINE = "┠ <b>{label} :</b> <code>{value}</code>"
-    BSET_GROUPS = {
-        "quota": "📊 Daily Quotas", "conc": "⚙️ Parallel Tasks",
-        "limits": "📦 Size & Cooldown", "maint": "🛠 Maintenance",
-    }
-    BSET_LABELS = {
-        "FREE_DAILY_LIMIT": "🎯 Free / day", "TEST_DAILY_LIMIT": "🧪 Test / day",
-        "GOLD_DAILY_LIMIT": "🥇 Gold / day", "ULTRA_DAILY_LIMIT": "👑 Ultra / day",
-        "MAX_CONCURRENT_FREE": "🎯 Free tasks", "MAX_CONCURRENT_TEST": "🧪 Test tasks",
-        "MAX_CONCURRENT_GOLD": "🥇 Gold tasks", "MAX_CONCURRENT_ULTRA": "👑 Ultra tasks",
-        "COOLDOWN_NORMAL": "⏳ Free cooldown (s)",
-        "MAX_FILE_SIZE_NORMAL": "📦 Max size (free)", "MAX_FILE_SIZE_PREMIUM": "📦 Max size (premium)",
-        "MAINTENANCE": "🛠 Maintenance", "MAINTENANCE_MSG": "📝 Maintenance note",
-    }
     BSET_HINTS = {
         "int": "Send a whole number (0 – 100000).",
         "size": "Send a size: <code>1950MB</code>, <code>2GB</code>, <code>4G</code> (max 4GB).",
         "text": "Send the note shown to users (HTML allowed, max 500 chars). Send <code>-</code> to clear.",
     }
-    BSET_PROMPT = (
-        "✏️ <b>Edit {label}</b>\n"
-        "<blockquote>╭ <b>Current:</b> <code>{current}</code>\n"
-        "╰ <b>Default:</b> <code>{default}</code></blockquote>\n"
-        "{hint}\n\n<i>Send the new value now, or tap Back.</i>"
-    )
     BSET_BTNS = {"default": "↺ Use Default", "reset_all": "♻️ Reset All to Default", "maint_on": "🛠 Maintenance: ✅ ON", "maint_off": "🛠 Maintenance: ❌ OFF"}
     BSET_SAVED = "✅ {label} = {value}"
     BSET_RESET_DONE = "All bot settings reset to default"
@@ -322,11 +212,9 @@ class _LegacyTheme:
     MAINTENANCE_NOTE = "\n<blockquote>📝 {note}</blockquote>"
     MAINTENANCE_ALERT = "🛠 The bot is under maintenance. Please try again later."
 
-    # ==================== help ====================
     HELP_HEADER = "Hey <b>{name}</b>\n\n<blockquote><b>Choose a category below to get help.</b></blockquote>"
     HELP_BTNS = {"thumb": "📸 Thumbnail", "cap": "📝 Caption", "redeem": "🎫 Redeem", "cmds": "📋 Commands", "settings": "⚙️ Settings"}
 
-    # RAW
     HELP_THUMB = (
         "🖼️ <b>HOW TO SET THUMBNAIL</b>\n\n"
         "<blockquote><b>1. Simply send any photo to the bot.</b>\n"
@@ -336,7 +224,6 @@ class _LegacyTheme:
         "┊ <code>/delthumb</code> - <u>Delete your thumbnail</u>\n"
         "╰ /settings → 🎬 <u>Auto Thumb (TMDB poster)</u></blockquote>"
     )
-    # RAW
     HELP_CAP = (
         "📝 <b>HOW TO SET CAPTION</b>\n\n"
         "<blockquote><b>Use <code>/set_cap</code> followed by your caption text, or /settings → 📝 Caption.</b></blockquote>\n\n"
@@ -353,7 +240,6 @@ class _LegacyTheme:
         "<blockquote>╭ <code>/see_caption</code> - <u>Check current caption</u>\n"
         "╰ <code>/del_caption</code> - <u>Reset to default</u></blockquote>"
     )
-    # RAW
     HELP_REDEEM = (
         "🎫 <b>REDEEM CODES</b>\n\n"
         "<blockquote>You can get premium access by redeeming a code.</blockquote>\n\n"
@@ -364,7 +250,6 @@ class _LegacyTheme:
         "<code>/redeem ABC12345</code>\n\n"
         "<b>Note:</b> Each user can redeem only one code."
     )
-    # RAW
     HELP_COMMANDS = (
         "<b>📋 AVAILABLE COMMANDS</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
@@ -408,15 +293,6 @@ class _LegacyTheme:
     )
     COVER_NOT_FOUND = "❌ <b>No poster found for this file name.</b>"
 
-    INFO = (
-        "🎬 <b>{title}</b> <code>({year})</code>\n"
-        "<blockquote>╭ ⭐ <b>Rᴀᴛɪɴɢ:</b> <code>{rating}</code>\n"
-        "┊ 🎭 <b>Gᴇɴʀᴇs:</b> {genres}\n"
-        "┊ ⏱ <b>{runtime_label}:</b> <code>{runtime}</code>\n"
-        "╰ 📺 <b>Tʏᴘᴇ:</b> <code>{kind}</code></blockquote>\n"
-        "<blockquote expandable>{overview}</blockquote>\n"
-        "🔗 <a href='{url}'>TMDB</a>"
-    )
     INFO_HELP = (
         "🎬 <b>Pᴏsᴛᴇʀ Sᴇᴀʀᴄʜ</b>\n"
         "<blockquote>╭ <code>/poster Oppenheimer 2023</code> (or <code>/p</code>)\n"
@@ -425,7 +301,6 @@ class _LegacyTheme:
     )
     INFO_NOT_FOUND = "❌ <b>Nothing found on TMDB.</b>"
 
-    # ==================== /poster browser (DD Bypass style) ====================
     POSTER_SEARCHING = "🔎 <i>Searching TMDB for</i> <code>{query}</code><i>...</i>"
     POSTER_RESULTS = (
         "🎬 <b>Pᴏsᴛᴇʀ Sᴇᴀʀᴄʜ</b>\n"
@@ -433,7 +308,7 @@ class _LegacyTheme:
         "╰ 📚 <b>Results:</b> <code>{count}</code> | 📄 <b>Page:</b> <code>{page}/{pages}</code></blockquote>\n"
         "<i>Tap a title to browse its posters & backdrops 👇</i>"
     )
-    POSTER_ITEM = "{title} ({year})"  # button label, plain text
+    POSTER_ITEM = "{title} ({year})"
     POSTER_CAPTION = (
         "<b>{title} ({year})</b>\n"
         "<blockquote>╭ 🔗 <a href='{url}'>View on TMDB</a>\n"
@@ -461,13 +336,7 @@ class _LegacyTheme:
     POSTER_SEARCH_FAIL = "❌ <b>TMDB search failed, try again later.</b>"
     POSTER_NO_KEY = "❌ <b>TMDB_API_KEY is not configured.</b>"
     POSTER_NO_TEXT = "No text"
-    POSTER_LANGS = {
-        "en": "English", "he": "Hebrew", "fr": "French", "de": "German", "es": "Spanish", "it": "Italian",
-        "pt": "Portuguese", "ru": "Russian", "ja": "Japanese", "ko": "Korean", "zh": "Chinese", "hi": "Hindi",
-        "ar": "Arabic", "tr": "Turkish", "pl": "Polish", "nl": "Dutch", "uk": "Ukrainian", "cs": "Czech",
-    }
 
-    # ==================== /stats (admin, paged like Leech-TJ) ====================
     STATS = (
         "⌬ <b><i>USER STATISTICS :</i></b>\n"
         "┎ 👥 <b>Users :</b> <code>{users}</code>\n"
@@ -521,7 +390,6 @@ class _LegacyTheme:
     )
     STATS_BTNS = {"bot": "🤖 Bot", "sys": "🖥 OS", "lim": "📏 Limits", "usr": "👥 Users"}
 
-    # ==================== /speedtest (Cloudflare, no extra deps) ====================
     SPEED_START = "<i>🚀 Initiating Speedtest...</i>"
     SPEED_RESULT = (
         "➲ <b><i>SPEEDTEST INFO</i></b>\n"
@@ -538,7 +406,6 @@ class _LegacyTheme:
     )
     SPEED_FAIL = "<b>ERROR:</b> <i>Speedtest failed: {err}</i>"
 
-    # ==================== ping / restart ====================
     PING = "<i>🏓 Starting Ping...</i>"
     PING_VALUE = "🏓 <b>Pong!</b> <code>{ms} ms</code>\n<blockquote>⏳ <b>Uptime:</b> {uptime}</blockquote>"
     RESTARTING = "🔄 <i>Restarting...</i>"
@@ -550,19 +417,18 @@ class _LegacyTheme:
         "┖ <b>Version :</b> {version}"
     )
 
-    # ==================== task status (Leech-TJ progress layout) ====================
     STARTING = "⏳ <b>Starting...</b>"
     STATUS_TASK = (
-        "┎🏷️ <b>Name:</b> <blockquote><i>{name}</i></blockquote>\n"
+        "<blockquote>┎🏷️ <b>Name:</b> <i>{name}</i>\n"
         "┃ <code>[{bar}]</code> {percent:.2f}%\n"
         "┠📊 <b>{processed_label}:</b> {done} of {total}\n"
         "┠⚡ <b>Status:</b> {status} | ⏰ <b>ETA:</b> {eta}\n"
         "┠🚀 <b>Speed:</b> {speed}/s | ⏱️ <b>Elapsed:</b> {elapsed}\n"
         "┠🚂 <b>Engine:</b> #TjGram | 💠 <b>Mode:</b> {mode_tag} | #Tg\n"
         "┠🙋 <b>User:</b> <code>{user}</code> | 🎯 <b>Task:</b> #{pos}\n"
-        "┖❌ <code>/cancel {pos}</code>"
+        "┖❌ <code>/cancel {pos}</code></blockquote>"
     )
-    STATUS_CANCELLED = "┎🏷️ <b>Name:</b> <blockquote><i>{name}</i></blockquote>\n┖ ❌ <b>Cancelled</b>"
+    STATUS_CANCELLED = "<blockquote>┎🏷️ <b>Name:</b> <i>{name}</i>\n┖ ❌ <b>Cancelled</b></blockquote>"
     STATUS_FOOTER = (
         "⌬ <b><i>Bot Stats</i></b>\n"
         "┠ <b>Tasks:</b> {tasks}/{max_tasks} | <b>AVL:</b> {avl}\n"
@@ -572,7 +438,6 @@ class _LegacyTheme:
     )
     NO_ACTIVE = "<i>📭 No Active Downloads/Uploads!</i>\n\n{footer}"
 
-    # ==================== plans ====================
     PLAN = (
         "<blockquote><b>{title}</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -586,7 +451,6 @@ class _LegacyTheme:
     )
     PLAN_TITLES = {"free": "🎯 FREE PLAN", "test": "🧪 TEST PLAN", "gold": "🥇 GOLD PLAN", "ultra": "👑 ULTRA PLAN"}
 
-    # ==================== admin panel ====================
     ADMIN_PANEL = (
         "<blockquote><b>╭── ˹ ADMIN CONTROL ˼ ──</b>\n"
         "<b>│</b>\n"
@@ -635,10 +499,6 @@ class _LegacyTheme:
     )
 
 
-# =====================================================================
-#  Leech-TJ "minimal" theme (bot/helper/themes/wzml_minimal.py) - 1:1 style
-#  Everything above (_LegacyTheme) is only a fallback for old names.
-# =====================================================================
 def tree(items):
     """[(label, value_html), ...] -> minimal ╭ ┊ ╰ lines (no blockquote)."""
     items = [i for i in items if i]
@@ -665,13 +525,10 @@ def pager(prefix, page, pages):
             ("▶️", f"{prefix}{(page + 1) % pages}"), ("⏭", f"{prefix}{pages - 1}")]
 
 
-class Theme(_LegacyTheme):
-    FOOTER = "━━━━━━━━⊱♡⊰━━━━━━━━"
+class MinimalTheme(_LegacyTheme):
     BT_BACK = "◀️"
-    BT_BACK_HOME = "◀️"
     BT_CLOSE = "❌"
 
-    # ---------------- start / about / server ----------------
     START = """㊂ <b><u>Hey {name} :</u></b>
 
 <i>I can rename your files, change their thumbnail and caption, convert video ↔ file and extract audio.</i>
@@ -709,27 +566,9 @@ class Theme(_LegacyTheme):
 ╰<b> Uptime :</b> {uptime}</blockquote>"""
 
     MODE_NAMES = {"ask": "Ask", "video": "Video", "file": "File", "swap": "Swap", "audio": "Audio"}
-    RENAME_NAMES = {"ask": "Ask", "yes": "Ask", "no": "Never"}
     PLAN_NAMES = {"free": "Free", "test": "Test", "gold": "Gold", "ultra": "Ultra", "admin": "Admin"}
     NOT_SET = "Not Exists"
 
-    # ---------------- /settings (users_settings.py layout) ----------------
-    USET_HOME = """㊂ <b><u>User Settings :</u></b>
-
-<blockquote>╭<b> Name :</b> {name} ( <code>{id}</code> )
-┊<b> Username :</b> {username}
-┊<b> Telegram DC :</b> {dc}
-╰<b> Language :</b> {lang}</blockquote>
-
-<blockquote>➲ <u><b>Categories :</b></u>
-┊ <b>Upload</b> - video / file / audio, rename prompt
-┊ <b>Thumbnail</b> - your photo or auto TMDB poster
-┊ <b>Caption</b> - caption text and variables
-┊ <b>Rename</b> - prefix, suffix, remove words
-┊ <b>Media</b> - screenshots and spoiler
-┊ <b>Audio</b> - audio format and quality
-┊ <b>Poster</b> - default /poster language and type
-╰ <b>Quota</b> - your plan and daily usage</blockquote>"""
     USET_HOME_BTNS = {"upload": "Upload Settings", "thumb": "Thumbnail Settings", "caption": "Caption Settings",
                       "name": "Rename Settings", "media": "Media Settings", "audio": "Audio Settings",
                       "poster": "Poster Settings", "quota": "Quota & Plan", "reset": "Reset Setting"}
@@ -765,33 +604,6 @@ class Theme(_LegacyTheme):
         "plang": "➲ /poster opens on this language. If a title has no images in it, All is shown\n┊ <b>No Text</b> - clean images without title text\n┊ <b>Original</b> - the language of the movie / series\n╰ <b>My Language</b> - your Telegram app language",
         "pkind": "➲ /poster opens on posters or on backdrops",
     }
-    USET_UPLOAD = """㊂ <b><u>Upload Settings : {name}</u></b>
-
-<blockquote>╭<b> Upload Type :</b> <i>{mode}</i>
-╰<b> Rename Prompt :</b> <i>{rename}</i></blockquote>
-
-<blockquote>➲ <u><b>Upload Type</b></u> - how every file is sent back
-┊ <b>Ask</b> - ask me for each file
-┊ <b>Video</b> - streamable video
-┊ <b>File</b> - document
-┊ <b>Swap</b> - video becomes file, file becomes video
-╰ <b>Audio</b> - extract the sound track (see Audio Settings)
-➲ <u><b>Rename Prompt</b></u> - when ON, the bot asks for a new name before every upload</blockquote>"""
-    USET_THUMB = """㊂ <b><u>Thumbnail Settings : {name}</u></b>
-
-<blockquote>╭<b> Custom Thumbnail :</b> <i>{thumb}</i>
-┊<b> Auto Thumbnail :</b> <i>{auto_thumb}</i>
-╰<b> TMDB :</b> <i>{tmdb}</i></blockquote>
-
-<blockquote>➲ <u><b>Custom Thumbnail</b></u> - send me any photo (or press Set Thumbnail), it is used for every file
-➲ <u><b>Auto Thumbnail</b></u> - without a custom thumbnail, the movie / series poster from TMDB is used
-➲ <b>Priority :</b> custom → TMDB poster → video frame</blockquote>"""
-    USET_CAPTION = """㊂ <b><u>Caption Settings : {name}</u></b>
-
-<blockquote>╭<b> Custom Caption :</b> <i>{state}</i>
-╰<b> Current :</b> <code>{caption}</code></blockquote>
-
-{vars}"""
     CAPTION_VARS = """<blockquote expandable>➲ <u><b>Variables :</b></u>
 ╭ <code>{filename}</code> - file name
 ┊ <code>{filesize}</code> - file size
@@ -800,46 +612,6 @@ class Theme(_LegacyTheme):
 ┊ <code>{duration}</code> - video length
 ╰ <code>{ext}</code> - file extension
 ➲ HTML allowed: &lt;b&gt; &lt;i&gt; &lt;u&gt; &lt;code&gt; &lt;blockquote&gt;</blockquote>"""
-    USET_NAME = """㊂ <b><u>Rename Settings : {name}</u></b>
-
-<blockquote>╭<b> Prefix :</b> <code>{prefix}</code>
-┊<b> Suffix :</b> <code>{suffix}</code>
-╰<b> Remname :</b> <code>{remname}</code></blockquote>
-
-<blockquote>➲ <u><b>Preview :</b></u>
-┊ <code>{example}</code>
-╰ <code>{preview}</code></blockquote>
-
-<blockquote>➲ <b>Prefix</b> - text added before the name
-➲ <b>Suffix</b> - text added at the end (before the extension)
-➲ <b>Remname</b> - remove or replace words (regex)</blockquote>"""
-    NAME_EXAMPLE = "www.Site.com - Movie.Name.2023.1080p.WEB-DL.mkv"
-    USET_MEDIA = """㊂ <b><u>Media Settings : {name}</u></b>
-
-<blockquote>╭<b> Screenshots :</b> <code>{screenshots}</code> per video
-╰<b> Spoiler :</b> <i>{spoiler}</i></blockquote>
-
-<blockquote>➲ <b>Screenshots</b> - photos sent after every video, 0 = off (max 10). Use ➖ / ➕
-➲ <b>Spoiler</b> - blur the video and screenshots until tapped</blockquote>"""
-    USET_AUDIO = """㊂ <b><u>Audio Settings : {name}</u></b>
-
-<blockquote>╭<b> Format :</b> <code>{fmt}</code>
-╰<b> Quality :</b> <code>{br}</code></blockquote>
-
-<blockquote>➲ Used when you choose <b>Audio</b> for a video: the sound track is extracted and sent as a Telegram audio file
-┊ <b>MP3</b> - plays everywhere
-┊ <b>M4A</b> - smaller, same quality
-┊ <b>OPUS</b> - smallest
-╰ <b>FLAC</b> - lossless (quality is ignored)</blockquote>"""
-    USET_POSTER = """㊂ <b><u>Poster Settings : {name}</u></b>
-
-<blockquote>╭<b> Default Language :</b> <code>{lang}</code>
-╰<b> Default Type :</b> <code>{kind}</code></blockquote>
-
-<blockquote>➲ /poster opens on this language and type. If a title has no images in that language, All is shown
-➲ <b>No Text</b> - clean images without title text (best for thumbnails)
-➲ <b>Original</b> - the language of the movie / series itself
-➲ <b>My Language</b> - your Telegram app language</blockquote>"""
     USET_QUOTA = """㊂ <b><u>Quota & Plan : {name}</u></b>
 
 <blockquote>╭<b> Plan :</b> <code>{plan}</code>{expires}
@@ -882,7 +654,6 @@ class Theme(_LegacyTheme):
     USET_INVALID = "<b>Invalid value:</b> <code>{err}</code>"
     USET_THUMB_CAPTION = "<b>Custom Thumbnail</b>"
 
-    # ---------------- /bsetting (bot_settings.py layout) ----------------
     BSET_HOME = """㊂ <b><u>Bot Settings :</u></b>
 
 <blockquote>╭<b> Daily Limits (F/T/G/U) :</b> <code>{q}</code>
@@ -925,6 +696,7 @@ class Theme(_LegacyTheme):
         "TEST_DURATION_DAYS": "Days the free Test plan lasts", "PREMIUM_DAYS": "Days a paid Gold / Ultra plan lasts",
         "DEVELOPER_NAME": "Name shown in the bot footer", "DEVELOPER_USERNAME": "Contact username for plans (no @)",
         "CHANNEL_LINK": "Channel link shown in About",
+        "UI_STYLE": "Look of every bot message: Minimal or Emoji",
         "UPSTREAM_REPO": "GitHub repo the bot updates from on every restart (needs a restart)",
         "UPSTREAM_BRANCH": "Branch the bot updates from on every restart (needs a restart)",
     }
@@ -936,12 +708,12 @@ class Theme(_LegacyTheme):
         "str": "Send the new value (max 100 chars). Send <code>-</code> for the default.",
         "chatid": "Send a chat id like <code>-1001234567890</code>.",
         "repo": "Send the repo link, e.g. <code>https://github.com/Tj-Bots/TJ-Rename-Bot</code>. A private repo needs <code>https://TOKEN@github.com/owner/repo</code>. Send <code>-</code> for the default.",
+        "choice": "Use the buttons below. <b>Minimal</b> is the clean look, <b>Emoji</b> is the classic look with emojis.",
         "secret": "Send the Pyrogram session string. Your message is deleted right away. Send <code>-</code> to go back to the .env one.",
     }
     BSET_BTNS = {"vars": "Config Variables", "reset_all": "Reset All Config", "default": "Default",
                  "on": "Enable", "off": "Disable", "yes": "Yes!, Reset"}
     BSET_SAVED = "{label} = {value}"
-    BSET_LABELS = {k: k for k in BSET_DESC}
     BSET_RESET_DONE = "All bot settings reset to default"
     BSET_RESET_CONFIRM = """㊂ <b><u>Reset Config :</u></b>
 
@@ -975,7 +747,6 @@ class Theme(_LegacyTheme):
     MAINTENANCE_NOTE = "\n<blockquote>➲ <b>Note :</b> {note}</blockquote>"
     MAINTENANCE_ALERT = "The bot is under maintenance. Please try again later."
 
-    # ---------------- help ----------------
     HELP_HEADER = "㊂ <b><i>Help Guide Menu!</i></b>\n\n<b>NOTE: <i>Click on any category to see more details.</i></b>"
     HELP_BTNS = {"thumb": "Thumbnail", "cap": "Caption", "redeem": "Redeem", "cmds": "Commands", "settings": "Settings"}
     HELP_THUMB = """㊂ <b><u>Thumbnail :</u></b>
@@ -1022,48 +793,16 @@ class Theme(_LegacyTheme):
 ┊ /set_cap · /see_caption · /del_caption - caption
 ╰ /redeem <code>CODE</code> - redeem a code</blockquote>"""
 
-    # ---------------- file flow ----------------
-    ASK_TARGET = """㊂ <b><u>Choose Output :</u></b>
-
-<blockquote>╭<b> Name :</b> <code>{name}</code>
-╰<b> Size :</b> {size}</blockquote>
-
-<blockquote>➲ <b>Video</b> - streamable video
-➲ <b>File</b> - document
-➲ <b>Audio</b> - extract the sound track ({fmt})</blockquote>"""
-    ASK_BTNS = {"video": "Video", "file": "File", "audio": "Audio", "cancel": "❌ Cancel"}
-    RENAME_ASK = """㊂ <b><u>Rename File :</u></b>
-
-<blockquote>╭<b> Current :</b> <code>{name}</code>
-╰<b> Output :</b> <i>{target}</i></blockquote>
-
-<blockquote>➲ Send the new name now (the extension is added automatically), or keep the original name.</blockquote>"""
-    RENAME_BTNS = {"keep": "Keep Original", "cancel": "❌ Cancel"}
     STARTING = "<i>Starting...</i>"
-    CANCELLED = "<b>Task Cancelled!</b>\n<blockquote>╰<b> Name :</b> <code>{name}</code></blockquote>"
-    TASK_ERROR = "<b>Task Failed!</b>\n<blockquote>╰<b> Error :</b> <code>{err}</code></blockquote>"
-    BUSY_FREE = """<b>Task Limit Reached!</b>
-
-<blockquote>╭<b> Active :</b> <code>{active}/{limit}</code>
-╰ Free users can convert {limit} file(s) at a time</blockquote>
-
-<blockquote>➲ Upgrade your plan to convert more files at once.</blockquote>"""
-    BUSY = "<b>Task Limit Reached!</b>\n<blockquote>╭<b> Active :</b> <code>{active}/{limit}</code>\n╰ Wait for one to finish or cancel one.</blockquote>"
-    BUSY_BTN = "Upgrade Plan"
-    COOLDOWN = "<b>Cooldown Active!</b>\n<blockquote>╰ Please wait <code>{sec}s</code> before sending another file.</blockquote>"
     THUMB_SAVED = "<b>Thumbnail Saved!</b>\n<blockquote>╰ It will be used for all your next files.</blockquote>"
     THUMB_DELETED = "<b>Thumbnail Deleted!</b>"
     NO_THUMB = "<b>No Thumbnail Set!</b>\n<blockquote>╰ Send me any photo to set one.</blockquote>"
     BANNED = "<b>You are banned from using this bot.</b>"
 
-    # ---------------- audio ----------------
     AUDIO_FORMATS = {"mp3": ("MP3", "libmp3lame", "mp3"), "m4a": ("M4A", "aac", "m4a"),
                      "opus": ("OPUS", "libopus", "ogg"), "flac": ("FLAC", "flac", "flac")}
     AUDIO_BITRATES = ("128k", "192k", "256k", "320k")
-    AUDIO_NO_TRACK = "<b>No audio track found in this file.</b>"
-    AUDIO_CONVERTING = "Extracting audio"
 
-    # ---------------- mediainfo / cover / poster ----------------
     MEDIAINFO_HELP = """㊂ <b><u>MediaInfo :</u></b>
 
 <blockquote>╭ Reply to a video / audio / document with <code>/mediainfo</code>
@@ -1121,7 +860,6 @@ class Theme(_LegacyTheme):
     POSTER_NO_TEXT = "No Text"
     POSTER_LANG_OPTS = {"all": "All", "en": "English", "ul": "My Language", "xx": "No Text", "orig": "Original"}
 
-    # ---------------- /stats (wzml_minimal BOT_STATS / SYS_STATS / BOT_LIMITS) ----------------
     STATS_BOT = """⌬ <b><i>BOT STATISTICS :</i></b>
 ╰ <b>Bot Uptime :</b> {bot_uptime}
 
@@ -1196,7 +934,6 @@ class Theme(_LegacyTheme):
 ┊ <b>TimeZone:</b> {tz}
 ╰ <b>Version:</b> {version}</blockquote>"""
 
-    # ---------------- task status (get_readable_message) ----------------
     STATUS_TASK = """<blockquote>╭ <b>Name:</b> <code>{name}</code>
 ┊ {bar} {percent:.2f}%
 ┊ <b>{processed_label}:</b> {done} of {total}
@@ -1210,9 +947,7 @@ class Theme(_LegacyTheme):
 ┊ <b>RAM:</b> {ram}% | <b>UPTIME:</b> {uptime}
 ╰ <b>DL:</b> {dl}/s | <b>UL:</b> {ul}/s</blockquote>"""
     NO_ACTIVE = "<i>No Active Tasks!</i>\n\n{footer}"
-    STATUS_NAMES = {"downloading": "Download", "uploading": "Upload", "converting": "Convert"}
 
-    # ---------------- plans ----------------
     USER_STATS = """㊂ <b><u>Your Plan : {name}</u></b>
 
 <blockquote>╭<b> Plan :</b> <code>{plan}</code>{expires}
@@ -1229,10 +964,109 @@ class Theme(_LegacyTheme):
 ┊<b> Max File Size :</b> <code>{size}</code>
 ┊<b> Parallel Tasks :</b> <code>{conc}</code>
 ╰<b> Cooldown :</b> <code>{cooldown}</code></blockquote>{extra}"""
-    PLAN_DURATION = "┊<b> Duration :</b> {days} days\n"
     PLAN_TITLES = {"free": "Free Plan", "test": "Test Plan", "gold": "Gold Plan", "ultra": "Ultra Plan"}
     PLAN_BTNS = {"free": "Free", "test": "Test", "gold": "Gold", "ultra": "Ultra", "refresh": "♻️ Refresh",
                  "get_test": "Activate Test (Free)", "buy": "Buy with {stars} Stars", "contact": "Contact Admin"}
     PLAN_TEST_ONCE = "\n<blockquote>➲ You can get the Test plan only once.</blockquote>"
     PLAN_TEST_FREE = "\n<blockquote>➲ One-time free trial!</blockquote>"
     TEST_ACTIVATED = "<b>Test Plan Activated!</b>\n<blockquote>╰<b> Active Until :</b> <code>{date}</code></blockquote>"
+
+
+_EMOJI_EXTRA = {
+    "HELP_HEADER": "💡 <b><i>Help Guide Menu!</i></b>\n\n<blockquote><b>NOTE: <i>Click on any category to see more details.</i></b></blockquote>",
+    "PING_VALUE": "🏓 <b>Pong!</b>\n<blockquote>╰ <code>{ms} ms..</code></blockquote>",
+    "STATUS_FOOTER": (
+        "⌬ <b><i>Bot Stats</i></b>\n"
+        "<blockquote>┠ 💻 <b>CPU:</b> {cpu}% | 💾 <b>F:</b> {free} [{free_p}%]\n"
+        "┠ 🧠 <b>RAM:</b> {ram}% | ⏳ <b>UPTIME:</b> {uptime}\n"
+        "┖ 🔻 <b>DL:</b> {dl}/s | 🔺 <b>UL:</b> {ul}/s</blockquote>"
+    ),
+    "POSTER_CAPTION": (
+        "<b>{title} ({year})</b>\n"
+        "<blockquote>╭ 🔗 <a href='{url}'>View on TMDB</a>\n"
+        "┊ 🖼 <b>Type:</b> <code>{type}</code>\n"
+        "┊ 🌐 <b>Language:</b> <code>{lang}</code>\n"
+        "┊ 📐 <b>Size:</b> <code>{w} x {h}</code>\n"
+        "┊ 🔗 <a href='{url_short}'>Short link</a>\n"
+        "╰ 📄 <b>Image:</b> <code>{i}/{n}</code></blockquote>"
+    ),
+    "MODE_NAMES": {"ask": "❓ Ask", "video": "🎥 Video", "file": "📁 File", "swap": "🔄 Swap", "audio": "🎵 Audio"},
+    "USET_HOME_BTNS": {
+        "upload": "📤 Upload Mode", "thumb": "🖼 Thumbnail & Cover",
+        "caption": "📝 Caption & Vars", "name": "🔤 Prefix / Suffix / Remname",
+        "auto": "🎬 Auto Thumb", "media": "📸 Screenshots & Spoiler",
+        "quota": "📊 Quota & Plan", "reset": "♻️ Reset All Settings",
+        "audio": "🎵 Audio Settings", "poster": "🎞 Poster Settings",
+    },
+    "USET_LABELS": {
+        "caption": "📝 Caption", "prefix": "Ⓟ Prefix", "suffix": "Ⓢ Suffix",
+        "remname": "🌈 Remname", "thumb": "🖼 Thumbnail", "screenshots": "📸 Screenshots",
+    },
+    "POSTER_BT": {
+        "prev": "⇦ Prev", "next": "Next ⇨", "img_prev": "⇦", "img_next": "⇨",
+        "p": "🖼 Posters ({n})", "b": "🌄 Backdrops ({n})",
+        "thumb": "✅ Set as thumbnail", "thumb_on": "✅️ Thumbnail Set",
+        "orig": "📥 Send original", "all": "🗂 All images", "more": "➕ More",
+        "back": "⇦ Back to results", "close": "✘ Close",
+    },
+    "START_BTNS": {},
+    "PLAN_BTNS": {},
+}
+
+
+def _emoji_overrides():
+    """Original emoji design; only entries that fit the current call sites replace the minimal ones."""
+    fields = lambda s: set(re.findall(r"\{(\w+)", s))
+    out = {}
+    for name, old in vars(_LegacyTheme).items():
+        if name.startswith("__") or not hasattr(MinimalTheme, name):
+            continue
+        new = getattr(MinimalTheme, name)
+        if isinstance(old, str) and isinstance(new, str):
+            if old != new and fields(old) <= fields(new):
+                out[name] = old
+        elif isinstance(old, dict) and isinstance(new, dict):
+            if old != new and set(new) <= set(old):
+                out[name] = old
+    return out
+
+
+class EmojiTheme(MinimalTheme):
+    pass
+
+
+for _k, _v in _emoji_overrides().items():
+    setattr(EmojiTheme, _k, _v)
+
+for _k, _v in _EMOJI_EXTRA.items():
+    _base = getattr(MinimalTheme, _k, None)
+    if isinstance(_v, dict) and isinstance(_base, dict):
+        if not set(_base) <= set(_v):
+            continue
+    elif isinstance(_v, str) and isinstance(_base, str):
+        if set(re.findall(r"\{(\w+)", _base)) != set(re.findall(r"\{(\w+)", _v)):
+            continue
+    else:
+        continue
+    setattr(EmojiTheme, _k, _v)
+
+STYLES = {"minimal": MinimalTheme, "emoji": EmojiTheme}
+_active = ["minimal"]
+
+
+def set_style(name):
+    if name in STYLES:
+        _active[0] = name
+
+
+def get_style():
+    return _active[0]
+
+
+class _ThemeMeta(type):
+    def __getattr__(cls, name):
+        return getattr(STYLES[_active[0]], name)
+
+
+class Theme(metaclass=_ThemeMeta):
+    """Proxy to the style chosen in /bsetting (UI_STYLE)."""
