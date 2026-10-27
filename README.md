@@ -1,160 +1,126 @@
-# 🚀 Advanced Telegram File & Rename Bot
+<div align="center">
 
-A high-performance, feature-rich Telegram bot built with **Pyrofork**. This bot is designed for seamless file management, media conversion, and advanced user personalization.
+# TJ Rename Bot
 
----
+**Rename, convert and manage Telegram files - with TMDB posters, MediaInfo and a full admin panel.**
 
-## ✨ Key Features
+[![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Pyrofork](https://img.shields.io/badge/Pyrofork-MTProto-2CA5E0?logo=telegram&logoColor=white)](https://github.com/Mayuri-Chan/pyrofork)
+[![Demo](https://img.shields.io/badge/Demo-@TJRenameBot-2CA5E0?logo=telegram&logoColor=white)](https://t.me/TJRenameBot)
 
-<details>
-<summary><b>📂 Core Media Management</b></summary>
-
-- **Fast Renaming:** Rename any file or video with full extension support.
-- **Media Conversion:** Convert **Video ↔️ Document** on the fly.
-- **Thumbnail Support:** Save custom thumbnails (`/viewthumb`, `/delthumb`) for all your future uploads.
-- **Screenshot Generation:** Automatically extract up to 10 screenshots from videos (configurable in settings).
-</details>
-
-<details>
-<summary><b>🎨 Advanced Personalization</b></summary>
-
-- **Custom Captions:** Powerful HTML caption engine with dynamic variables:
-  - `{filename}`: The name of the processed file.
-  - `{filesize}`: Human-readable size (e.g., 1.5 GB).
-- **Flexible Modes:**
-  - `🎥 Video`: Always upload as streamable video.
-  - `📁 File`: Always upload as a document.
-  - `🔄 Swap`: Automatically switch (Video to File, File to Video).
-  - `❓ Ask`: Prompt for action on every file.
-</details>
-
-<details>
-<summary><b>⭐ Premium & Monetization System</b></summary>
-
-- **Tiered Plans:**
-  - **🎯 Free:** 10 daily conversions, 2GB max size, 1 concurrent task, 60s cooldown.
-  - **🧪 Test:** (Trial) 10 daily conversions, 4GB max size, 2 concurrent tasks, no cooldown.
-  - **🥇 Gold:** 20 daily conversions, 4GB max size, 2 concurrent tasks.
-  - **👑 Ultra:** 50 daily conversions, Unlimited size, 3 concurrent tasks.
-- **Redeem System:** Integrated `/redeem` command for activating premium plans via codes.
-- **Daily Limits:** Intelligent tracking and automated daily reset at 00:00 UTC.
-</details>
-
-<details>
-<summary><b>📊 Performance & Monitoring</b></summary>
-
-- **Live Progress:** Detailed progress bars for both downloading and uploading.
-- **Server Health:** Real-time monitoring of CPU, RAM, Disk, and Task Load (`/status`).
-- **Concurrent Tasks:** Advanced locking system to manage multiple tasks per user.
-- **Premium Userbot:** Integrated Session String support for bypassing Telegram's 2GB upload limit (up to 4GB/Unlimited).
-</details>
+</div>
 
 ---
 
-## 🛠 Tech Stack
+## Features
 
-- **Language:** Python 3.13+
-- **Core:** [Pyrofork](https://github.com/himeko-org/pyrofork)
-- **Metadata:** [Hachoir](https://github.com/vstinner/hachoir)
-- **Media Processing:** [FFmpeg](https://ffmpeg.org/)
-- **System monitoring:** `psutil`
-- **Database:** Local JSON persistence (`users_db.json`)
+- **Rename and convert** - any video or document, Video <-> File, audio extraction (MP3 / M4A / OPUS / FLAC).
+- **Thumbnails** - custom thumbnail, or an automatic TMDB poster / video frame.
+- **Captions and names** - HTML captions with variables, prefix, suffix and regex *remname* rules.
+- **Screenshots and spoiler** - up to 10 screenshots per video, optional spoiler.
+- **`/poster`** - browse TMDB posters and backdrops by language, send the original or set it as thumbnail.
+- **`/mediainfo`** - full MediaInfo of any file or direct link.
+- **`/cover`** - add a cover to a video without re-uploading it.
+- **Plans** - Free / Test / Gold / Ultra with daily limits, size limits, cooldowns and Stars payments.
+- **Redeem codes**, broadcast, bans, user stats, speedtest and live server stats.
+- **Premium userbot** - uploads up to 4 GB through a user session, which can be added from the bot itself.
+- **Auto update** - on every start the bot pulls the latest code from this repository.
 
----
+## Settings
 
-## 🚀 Commands Guide
+| Command | Who | What |
+|---|---|---|
+| `/settings` | everyone | Personal settings: upload type, thumbnail, caption, prefix / suffix / remname, screenshots, audio, poster defaults |
+| `/bsetting` | admin | Bot settings stored in MongoDB and applied instantly - limits, sizes, prices, plan days, channels, maintenance mode and the premium `SESSION_STRING` |
 
-### 👤 User Commands
-- `/start` - Launch the bot and main menu.
-- `/help` - Comprehensive guide for Thumbnails, Captions, and Redeem.
-- `/settings` - Configure Mode, Rename behavior, and Screenshot count.
-- `/plans` - View subscription details and limits.
-- `/status` - View active tasks and server performance.
-- `/set_cap` / `/del_cap` - Manage custom caption templates.
-- `/viewthumb` / `/delthumb` - Manage custom thumbnails.
-- `/redeem <code>` - Activate premium access.
-- `/cancel <task_id>` - Stop a specific active task.
+## Commands
 
-### 👑 Admin Commands (`ADMIN_ID` only)
-- `/admin` - Master control panel with full user/plan statistics.
-- `/broadcast` - Send announcements (Copy/Forward modes) to all users.
-- `/gencodes <count> <duration> [plan]` - Generate unique redeem codes (e.g., `/gencodes 5 30d gold`).
-- `/redeem_stats` - View used vs available redeem codes.
-- `/add_plan <uid> <plan> <duration>` - Manually grant premium access.
-- `/remove_plan <uid>` - Revoke premium access.
-- `/plan_list` - List active premium users.
-- `/users` / `/allban` - Manage user database and bans.
-- `/ban` / `/unban <uid>` - Restrict user access.
-- `/restart` - Reboot the bot remotely.
-- `/cancelall` - Stop all active tasks on the server.
+| Command | Aliases | Admin | Description |
+|---|---|:---:|---|
+| `/start` | | | Start the bot |
+| `/help` | `/h` | | Help menu |
+| `/settings` | `/us` `/usetting` | | Your settings |
+| `/status` | `/s` | | Active tasks and server load |
+| `/cancel <id>` | `/cn` | | Cancel a task |
+| `/plans` | `/pl` | | Premium plans |
+| `/redeem <code>` | | | Activate a code |
+| `/poster <title>` | `/p` | | TMDB posters and backdrops |
+| `/mediainfo` | `/mi` | | MediaInfo of a replied file or link |
+| `/cover` | `/c` | | Add a cover to a replied video |
+| `/set_cap` `/see_caption` `/del_cap` | | | Caption |
+| `/viewthumb` `/delthumb` | | | Thumbnail |
+| `/ping` | | | Latency |
+| `/bsetting` | `/bs` | yes | Bot settings |
+| `/admin` | `/ad` | yes | Admin panel |
+| `/stats` | `/st` | yes | Bot statistics |
+| `/speedtest` | `/sp` | yes | Server speedtest |
+| `/broadcast` | `/bc` | yes | Message all users |
+| `/gencodes` `/redeem_stats` | | yes | Redeem codes |
+| `/add_plan` `/remove_plan` `/plan_list` | | yes | Manage premium users |
+| `/users` `/ban` `/unban` `/allban` | | yes | Users and bans |
+| `/cancelall` | `/ca` | yes | Cancel every task |
+| `/restart` | `/r` | yes | Restart the bot |
 
----
+## Setup
 
-## 🐋 Docker & VPS Deployment
+### Requirements
 
-<details>
-<summary><b>🚀 Run with Docker (Recommended)</b></summary>
+- Python 3.13+, `ffmpeg` and `mediainfo`
+- A MongoDB database (Atlas free tier is enough)
+- Telegram `API_ID` / `API_HASH` from [my.telegram.org](https://my.telegram.org) and a bot token from [@BotFather](https://t.me/BotFather)
 
-1.  **Build and Start:**
-    ```bash
-    docker compose up -d --build
-    ```
+### Run on a VPS
 
-2.  **View Logs:**
-    ```bash
-    docker compose logs -f
-    ```
+```bash
+sudo apt update && sudo apt install -y python3-pip python3-venv ffmpeg mediainfo git
+git clone https://github.com/Tj-Bots/TJ-Rename-Bot.git
+cd TJ-Rename-Bot
+python3 -m venv venv && venv/bin/pip install -r requirements.txt
+cp .env.example .env        # fill in your values
+venv/bin/python main.py
+```
 
-3.  **Stop:**
-    ```bash
-    docker compose down
-    ```
-</details>
+Keep it running with `pm2` or `screen`. `/restart` re-executes the process, so no external restart is needed.
 
-<details>
-<summary><b>🖥️ Run on VPS (Manual Setup)</b></summary>
+### Run with Docker
 
-1.  **Install dependencies:**
-    ```bash
-    sudo apt update && sudo apt install -y python3-pip ffmpeg
-    ```
+```bash
+cp .env.example .env        # fill in your values
+docker compose up -d --build
+docker compose logs -f
+```
 
-2.  **Clone and install requirements:**
-    ```bash
-    git clone https://github.com/Tj-Bots/converter-bot.git
-    cd converter-bot
-    pip install -r requirements.txt
-    ```
-
-3.  **Run in background (screen/tmux):**
-    ```bash
-    screen -S converter-bot
-    python3 main.py
-    ```
-</details>
-
----
-
-## ⚙️ Configuration (.env)
+## Configuration (`.env`)
 
 | Variable | Description | Required |
-|---|---|---|
-| `API_ID` | Telegram API ID from my.telegram.org | ✓ |
-| `API_HASH` | Telegram API Hash from my.telegram.org | ✓ |
-| `BOT_TOKEN` | Bot token from @BotFather | ✓ |
-| `ADMIN_ID` | Numerical ID of the bot administrator | ✓ |
-| `MONGO_URI` | MongoDB connection string for database storage | ✓ |
-| `DUMP_CHANNEL` | Channel ID for file storage (Required for large files) | ✓ |
-| `SESSION_STRING` | Pyrogram session string for Premium features | ✘ |
+|---|---|:---:|
+| `API_ID` | Telegram API ID | yes |
+| `API_HASH` | Telegram API hash | yes |
+| `BOT_TOKEN` | Bot token from @BotFather | yes |
+| `ADMIN_ID` | Numeric Telegram ID of the admin | yes |
+| `MONGO_URI` | MongoDB connection string | yes |
+| `DUMP_CHANNEL` | Channel ID (`-100...`) used to store uploads | yes |
+| `DB_NAME` | Database name, default `tj_rename` | no |
+| `SESSION_STRING` | Pyrogram session of a premium account, enables 4 GB uploads (can also be set in `/bsetting`) | no |
+| `TMDB_API_KEY` | Enables `/poster`, auto thumbnail and auto cover | no |
+| `TMDB_IMAGE_LANGS` | Extra TMDB image languages, e.g. `en,he` | no |
+| `AUTO_UPDATE` | `false` disables the update on start, default `true` | no |
+| `UPSTREAM_BRANCH` | Branch to update from, default `main` | no |
 
----
+## Auto update
 
-## 🔗 Links & Support
+On every start `updater.py` fetches this repository and fast-forwards to the latest commit.
 
-- **🤖 Live Demo:** [@TJRenameBot](https://t.me/TJRenameBot)
-- **📢 Updates Channel:** [@TJ_Bots](https://t.me/TJ_Bots)
-- **👤 Developer:** [𝑻𝒉𝒆 𝑱𝒐𝒌𝒆𝒓🃏](https://t.me/The_Joker121_bot)
+- Only files tracked by git are changed. `.env`, sessions, downloads and every other local file are never touched.
+- Nothing happens when there are local edits to tracked files, local commits that are not on GitHub, or no connection.
+- New code is compiled before it is used. If it does not compile, the update is rolled back.
+- `requirements.txt` changes are installed automatically.
 
----
+Set `AUTO_UPDATE=false` to turn it off.
 
-**Developed with ❤️ by [𝑻𝒉𝒆 𝑱𝒐𝒌𝒆𝒓🃏](https://t.me/The_Joker121_bot)**
+## Links
+
+- Demo bot: [@TJRenameBot](https://t.me/TJRenameBot)
+- Updates: [@Tj_Bots](https://t.me/Tj_Bots)
+- Group: [@TJ_Bots_Chat](https://t.me/TJ_Bots_Chat)
+- Developer: [The Joker](https://t.me/The_Joker121_bot)

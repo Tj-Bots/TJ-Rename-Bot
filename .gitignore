@@ -1,0 +1,16 @@
+.env
+*.session
+*.session-journal
+*.bak-*
+__pycache__/
+*.pyc
+venv/
+downloads/
+*.log
+nohup.out
+telegraph_token.txt
+users.txt
+users_db.json
+premium_log.txt
+.restartmsg
+חדש.py

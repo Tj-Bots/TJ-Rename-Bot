@@ -4,3 +4,4 @@ hachoir
 psutil
 python-dotenv
 pytz
+motor
