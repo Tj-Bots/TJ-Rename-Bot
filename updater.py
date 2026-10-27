@@ -4,7 +4,8 @@ Safe by design: only tracked files change (fast-forward merge), so .env, session
 databases and downloads are never touched. The update is skipped when there is no
 .git folder, when tracked files have local edits, when local commits are not on the
 remote, or when offline - and it is rolled back if the new code does not compile.
-Env: AUTO_UPDATE=false turns it off, UPSTREAM_BRANCH picks the branch (default main).
+Repo and branch come from /bsetting (UPSTREAM_REPO, UPSTREAM_BRANCH), then .env, then the
+git origin. AUTO_UPDATE=false turns the update off.
 """
 import os
 import re
@@ -27,6 +28,30 @@ def _git(*args, timeout=60):
     return r.returncode, r.stdout.strip(), r.stderr.strip()
 
 
+def defaults():
+    """Repo URL and branch from .env, falling back to the git origin."""
+    repo = os.getenv("UPSTREAM_REPO", "").strip()
+    if not repo:
+        repo = _git("remote", "get-url", REMOTE)[1]
+    return repo, os.getenv("UPSTREAM_BRANCH", "").strip() or "main"
+
+
+def _saved_settings():
+    uri = os.getenv("MONGO_URI", "")
+    if not uri:
+        return {}
+    try:
+        from pymongo import MongoClient
+        client = MongoClient(uri, serverSelectionTimeoutMS=4000)
+        try:
+            col = client[os.getenv("DB_NAME", "tj_rename")]["bot_config"]
+            return col.find_one({"_id": "settings"}) or {}
+        finally:
+            client.close()
+    except Exception:
+        return {}
+
+
 def check_update():
     """Fast-forward to the remote branch. Returns True when new code was installed."""
     if os.environ.pop("TJ_UPDATED", None):
@@ -35,8 +60,13 @@ def check_update():
         return False
     if not os.path.isdir(os.path.join(ROOT, ".git")):
         return False
-    branch = os.getenv("UPSTREAM_BRANCH", "main").strip() or "main"
-    code, _, err = _git("fetch", "--quiet", REMOTE, branch, timeout=45)
+    repo, branch = defaults()
+    saved = _saved_settings()
+    repo = str(saved.get("UPSTREAM_REPO") or repo)
+    branch = str(saved.get("UPSTREAM_BRANCH") or branch)
+    if not repo:
+        return False
+    code, _, err = _git("fetch", "--quiet", repo, branch, timeout=45)
     if code != 0:
         _log("fetch failed, running the current code (" + (err.splitlines()[-1] if err else "no details") + ")")
         return False
@@ -46,7 +76,7 @@ def check_update():
         _log("up to date")
         return False
     if _git("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD")[0] != 0:
-        _log("local commits are not on the remote, skipping update")
+        _log("local code is not part of the history of " + branch + ", skipping update")
         return False
     if _git("status", "--porcelain", "--untracked-files=no")[1]:
         _log("tracked files have local changes, skipping update")

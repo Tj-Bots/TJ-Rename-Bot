@@ -123,4 +123,4 @@ Set `AUTO_UPDATE=false` to turn it off.
 - Demo bot: [@TJRenameBot](https://t.me/TJRenameBot)
 - Updates: [@Tj_Bots](https://t.me/Tj_Bots)
 - Group: [@TJ_Bots_Chat](https://t.me/TJ_Bots_Chat)
-- Developer: [The Joker](https://t.me/The_Joker121_bot)
+- Developer: [Tj Admin](https://t.me/Tj_Bots_Admin)

@@ -69,11 +69,15 @@ DUMP_CHANNEL = int(os.getenv("DUMP_CHANNEL"))
 
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 
-VERSION = "16.1.0 JOKER MASTER"
-DEVELOPER_NAME = "𝑻𝒉𝒆 𝑱𝒐𝒌𝒆𝒓🃏"
-DEVELOPER_USERNAME = "The_Joker121_bot"
+VERSION = "2.0.0"
+DEVELOPER_NAME = "꧁ 𝕋𝕛 𝔸𝕕𝕞𝕚𝕟 ꧂"
+DEVELOPER_USERNAME = "Tj_Bots_Admin"
 DEVELOPER_LINK = f"https://t.me/{DEVELOPER_USERNAME}"
 CHANNEL_LINK = "https://t.me/Tj_Bots"
+try:
+    UPSTREAM_REPO, UPSTREAM_BRANCH = updater.defaults()
+except Exception:
+    UPSTREAM_REPO, UPSTREAM_BRANCH = "", "main"
 
 TEST_PRICE = "Free (one-time)"
 GOLD_PRICE = "$1"
@@ -124,6 +128,7 @@ BOT_CONFIG_SPEC = {  # key: (type, group)
     "GOLD_PRICE": ("str", "price"), "ULTRA_PRICE": ("str", "price"), "TEST_PRICE": ("str", "price"),
     "TEST_DURATION_DAYS": ("int", "price"), "PREMIUM_DAYS": ("int", "price"),
     "DEVELOPER_NAME": ("str", "brand"), "DEVELOPER_USERNAME": ("str", "brand"), "CHANNEL_LINK": ("str", "brand"),
+    "UPSTREAM_REPO": ("repo", "sys"), "UPSTREAM_BRANCH": ("str", "sys"),
     "MAINTENANCE": ("bool", "maint"), "MAINTENANCE_MSG": ("text", "maint"),
 }
 BOT_CONFIG_DEFAULTS = {
@@ -139,6 +144,7 @@ BOT_CONFIG_DEFAULTS = {
     "GOLD_PRICE": GOLD_PRICE, "ULTRA_PRICE": ULTRA_PRICE, "TEST_PRICE": TEST_PRICE,
     "TEST_DURATION_DAYS": 7, "PREMIUM_DAYS": 30,
     "DEVELOPER_NAME": DEVELOPER_NAME, "DEVELOPER_USERNAME": DEVELOPER_USERNAME, "CHANNEL_LINK": CHANNEL_LINK,
+    "UPSTREAM_REPO": UPSTREAM_REPO, "UPSTREAM_BRANCH": UPSTREAM_BRANCH,
     "MAINTENANCE": False, "MAINTENANCE_MSG": "",
 }
 SIZE_CAPS = {"MAX_FILE_SIZE_NORMAL": 2000 * 1024 * 1024, "MAX_FILE_SIZE_PREMIUM": 4 * 1024 * 1024 * 1024}
@@ -197,9 +203,17 @@ def parse_config_value(key, text):
         if len(text) < 100 or not re.fullmatch(r"[A-Za-z0-9_=+/\-]+", text):
             raise ValueError("this does not look like a Pyrogram session string")
         return text
+    if kind == "repo":
+        if text == "-":
+            return BOT_CONFIG_DEFAULTS[key]
+        if len(text) > 200 or not re.fullmatch(r"https://\S+", text):
+            raise ValueError("send a repo link starting with https://")
+        return text
     if kind == "str":
         if text == "-":
             return BOT_CONFIG_DEFAULTS[key]
+        if key == "UPSTREAM_BRANCH" and not re.fullmatch(r"[A-Za-z0-9._/-]{1,60}", text):
+            raise ValueError("send a branch name")
         if not text or len(text) > 100:
             raise ValueError("1-100 characters")
         if key == "DEVELOPER_USERNAME":
@@ -224,6 +238,8 @@ def fmt_config_value(key, value=None):
         return "True" if value else "False"
     if kind == "secret":
         return f"Set (...{str(value)[-4:]})" if value else Theme.NOT_SET
+    if kind == "repo":
+        return short(re.sub(r"://[^@/\s]+@", "://***@", str(value)), 40) if value else Theme.NOT_SET
     if kind == "str":
         return short(value, 40)
     if kind == "text":
@@ -435,7 +451,7 @@ class _DB:
             val = doc[key]
             ok = {"int": isinstance(val, int) and not isinstance(val, bool), "size": isinstance(val, int) and not isinstance(val, bool),
                   "bool": isinstance(val, bool), "text": isinstance(val, str),
-                  "str": isinstance(val, str), "secret": isinstance(val, str),
+                  "str": isinstance(val, str), "secret": isinstance(val, str), "repo": isinstance(val, str),
                   "chatid": isinstance(val, int) and not isinstance(val, bool)}[kind]
             if ok:
                 BOT_CONFIG[key] = val

@@ -925,6 +925,8 @@ class Theme(_LegacyTheme):
         "TEST_DURATION_DAYS": "Days the free Test plan lasts", "PREMIUM_DAYS": "Days a paid Gold / Ultra plan lasts",
         "DEVELOPER_NAME": "Name shown in the bot footer", "DEVELOPER_USERNAME": "Contact username for plans (no @)",
         "CHANNEL_LINK": "Channel link shown in About",
+        "UPSTREAM_REPO": "GitHub repo the bot updates from on every restart (needs a restart)",
+        "UPSTREAM_BRANCH": "Branch the bot updates from on every restart (needs a restart)",
     }
     BSET_HINTS = {
         "int": "Send a whole number (0 - 100000).",
@@ -933,6 +935,7 @@ class Theme(_LegacyTheme):
         "bool": "Use the buttons below.",
         "str": "Send the new value (max 100 chars). Send <code>-</code> for the default.",
         "chatid": "Send a chat id like <code>-1001234567890</code>.",
+        "repo": "Send the repo link, e.g. <code>https://github.com/Tj-Bots/TJ-Rename-Bot</code>. A private repo needs <code>https://TOKEN@github.com/owner/repo</code>. Send <code>-</code> for the default.",
         "secret": "Send the Pyrogram session string. Your message is deleted right away. Send <code>-</code> to go back to the .env one.",
     }
     BSET_BTNS = {"vars": "Config Variables", "reset_all": "Reset All Config", "default": "Default",
