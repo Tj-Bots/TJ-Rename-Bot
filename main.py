@@ -79,7 +79,7 @@ DUMP_CHANNEL = int(os.getenv("DUMP_CHANNEL"))
 
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 DEVELOPER_NAME = "꧁ 𝕋𝕛 𝔸𝕕𝕞𝕚𝕟 ꧂"
 DEVELOPER_USERNAME = "Tj_Bots_Admin"
 DEVELOPER_LINK = f"https://t.me/{DEVELOPER_USERNAME}"
@@ -495,10 +495,16 @@ def set_config(key, value):
     set_style(cfg("UI_STYLE"))
     _run(_save_config([key]))
 
+BSET_PROTECTED = ("SESSION_STRING", "DUMP_CHANNEL")
+
+
 def reset_config():
-    BOT_CONFIG.clear()
+    """Reset every config variable except the credentials that come from .env."""
+    keys = [k for k in BOT_CONFIG if k not in BSET_PROTECTED]
+    for k in keys:
+        BOT_CONFIG.pop(k, None)
     set_style(cfg("UI_STYLE"))
-    _run(_save_config(list(BOT_CONFIG_SPEC)))
+    _run(_save_config(keys))
 
 async def _save_user(uid):
     uid = str(uid)
@@ -1602,10 +1608,6 @@ async def admin_callback(client, query, uid, data):
         b.ibutton("❌", "close_all", "footer")
         return await _edit(query, Theme.BSET_RESET_CONFIRM, b.build_menu(1))
     if data == "bs_resetyes":
-        if "SESSION_STRING" in BOT_CONFIG:
-            err = await apply_userbot(BOT_CONFIG_DEFAULTS["SESSION_STRING"])
-            if err:
-                return await query.answer(err, show_alert=True)
         reset_config()
         return await _edit(query, *bset_home_view(), toast=Theme.BSET_RESET_DONE)
     await query.answer("Unknown action")
@@ -3798,6 +3800,8 @@ async def main():
     except Exception as e:
         logger.warning(f"restart notice failed: {e}")
     bot_me = await bot.get_me()
+    logger.info(f"Bot started: @{bot_me.username} ({bot_me.first_name}) [{bot_me.id}]")
+    logger.info(f"Admin ID: {ADMIN_ID}")
     print(f"🤖 Bot:       @{bot_me.username} ({bot_me.first_name})")
     print(f"🆔 Bot ID:    {bot_me.id}")
     print(f"👑 Admin ID:  {ADMIN_ID}")
@@ -3813,12 +3817,17 @@ async def main():
             prem_me = await premium_client.get_me()
             uname = f"@{prem_me.username}" if prem_me.username else "(no username)"
             userbot_info = f"{uname}" + (" · Premium" if prem_me.is_premium else " · no Premium")
+            logger.info(f"UserBot started: {uname} ({prem_me.first_name}) | Premium: {prem_me.is_premium}")
             print(f"⭐ UserBot:   {uname} ({prem_me.first_name}) | Premium: {prem_me.is_premium}")
         except Exception:
+            logger.warning("UserBot started but could not fetch its info")
             print("⭐ UserBot:   started (could not fetch info)")
     else:
+        logger.info("UserBot not configured - max file size limited to 2GB")
         print("⚠️  UserBot:   not configured (max file size limited to 2GB)")
 
+    logger.info(f"Version: {VERSION} | Style: {cfg('UI_STYLE')} | Workspace: {WORKSPACE}")
+    logger.info("Bot is up and listening")
     print(f"📦 Version:   {VERSION}")
     print(f"💾 Workspace: {WORKSPACE}")
     print("=" * 50)

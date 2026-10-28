@@ -201,7 +201,7 @@ class _LegacyTheme:
     BSET_RESET_CONFIRM = (
         "♻️ <b>Reset ALL bot settings to default?</b>\n"
         "<blockquote>Quotas, parallel tasks, cooldown, max sizes and maintenance go back to the "
-        "values in the code. Users' plans are not touched.</blockquote>"
+        "values in the code. Session string, dump channel and users' plans are not touched.</blockquote>"
     )
     BSET_INVALID = "❌ <b>Invalid value:</b> <code>{err}</code>\n<i>Send it again or tap Back.</i>"
     ADMIN_ONLY = "Admins only!"
@@ -741,7 +741,8 @@ class MinimalTheme(_LegacyTheme):
     BSET_RESET_DONE = "All bot settings reset to default"
     BSET_RESET_CONFIRM = """㊂ <b><u>Reset Config :</u></b>
 
-<blockquote>➲ Every config variable goes back to the value in the code / .env (the userbot goes back to the .env session).
+<blockquote>➲ Every config variable goes back to the value in the code / .env.
+➲ Session string and dump channel are kept.
 ➲ Users' plans are not touched.</blockquote>"""
     BSET_INVALID = "<b>Invalid value:</b> <code>{err}</code>"
     ADMIN_ONLY = "Admins only!"
