@@ -669,7 +669,7 @@ def maintenance_text():
     return Theme.MAINTENANCE.format(note=Theme.MAINTENANCE_NOTE.format(note=note) if note else "")
 
 def apply_name_rules(filename, config):
-    """Leech-TJ format_filename: remname (regex rules) -> prefix -> suffix (before extension)."""
+    """Build the output name: remname (regex rules) -> prefix -> suffix (before extension)."""
     name = filename or "file"
     base, ext = os.path.splitext(name)
     if len(ext) > 6 or " " in ext:
@@ -1231,7 +1231,7 @@ def _nxt(seq, cur):
 
 
 def uset_view(uid, user, config, screen="home"):
-    """One renderer for every /settings screen -> (text, keyboard). Leech: main=build_menu(1), category=build_menu(2)."""
+    """One renderer for every /settings screen -> (text, keyboard)."""
     name = _user_link(user)
     b = ButtonMaker()
     if screen in ("mode", "fmt", "br", "plang", "pkind"):
@@ -2792,7 +2792,7 @@ def _tg_token():
     return acc["access_token"]
 
 def _mediainfo_nodes(raw_out):
-    """mediainfo CLI output -> Telegraph nodes (h4 per section + pre body), like Leech-TJ."""
+    """mediainfo CLI output -> Telegraph nodes (h4 per section + pre body)."""
     nodes, cur = [], None
     def flush():
         if cur is not None:

@@ -1,10 +1,7 @@
-"""UI theme for the converter bot (texts + button helpers).
+"""UI theme: every user-facing string and the button helpers.
 
-Modeled on Leech-TJ's themes (bot/helper/themes/wzml_emoji.py): all
-user-facing strings live here, so changing the look never requires touching
-the bot logic.
-Placeholders use str.format() names, e.g. {name}. Strings marked RAW are sent
-as-is (never .format()-ed), so they may contain literal {braces}.
+Two selectable styles, MinimalTheme and EmojiTheme, picked via UI_STYLE in /bsetting.
+Placeholders use str.format() names, e.g. {name}.
 """
 import html as _html
 import re
@@ -18,7 +15,7 @@ PRIMARY_KEYS = ("◀️", "▶️", "⌫", "♻️", "view in", "page ", "⏮", 
 
 
 def auto_style(text, is_url=False):
-    """Leech-TJ auto_style: danger > success > primary(back/paging/url) > default."""
+    """Button colour: danger > success > primary(back/paging/url) > default."""
     t = str(text)
     if t.isupper() and "_" in t:
         return enums.ButtonStyle.DEFAULT
@@ -40,7 +37,7 @@ def btn(text, data=None, url=None, style=None):
 
 
 class ButtonMaker:
-    """Leech-TJ ButtonMaker: body + header / f_body / l_body / footer rows."""
+    """Inline keyboard builder: body + header / f_body / l_body / footer rows."""
 
     def __init__(self):
         self._b, self._h, self._fb, self._lb, self._f = [], [], [], [], []
@@ -528,7 +525,7 @@ def tree(items):
 
 
 def mark(on, label):
-    """Leech toggle label: '✅️ Label' only when active (auto_style makes it green)."""
+    """Toggle label: '✅️ Label' only when active."""
     return f"✅️ {label}" if on else label
 
 

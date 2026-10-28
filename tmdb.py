@@ -1,4 +1,4 @@
-"""Auto thumbnail from TMDB (ported from Leech-TJ tmdb_utils).
+"""Auto thumbnail and poster search via TMDB.
 
 No extra dependencies: HTTP via urllib (run in a thread), image resize via ffmpeg.
 Telegram thumbnail limits: JPEG, max 320px on each side, under 200KB.
@@ -196,7 +196,7 @@ def _fetch_info(title, year):
 
 
 async def get_info(query):
-    """Movie/series details from TMDB for a title or file name (Leech-TJ /imdb style).
+    """Movie/series details from TMDB for a title or file name.
     Returns dict or None."""
     if not TMDB_KEY:
         return None
