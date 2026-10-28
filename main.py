@@ -12,6 +12,7 @@ import re
 import logging
 import io
 import urllib.request
+import uuid
 import urllib.parse
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -37,13 +38,13 @@ import tmdb as tmdb_mod
 from pyrogram.types import BotCommand, BotCommandScopeChat, LinkPreviewOptions
 
 LOG_FILE = "log.txt"
-_log_fmt = logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s", datefmt="%d-%b-%y %H:%M:%S")
+_log_fmt = logging.Formatter("[%(asctime)s] [%(levelname)s] - %(message)s", datefmt="%d-%b-%y %I:%M:%S %p")
 _file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=2, encoding="utf-8")
 _file_handler.setFormatter(_log_fmt)
 _file_handler.setLevel(logging.INFO)
 _stream_handler = logging.StreamHandler()
 _stream_handler.setFormatter(_log_fmt)
-_stream_handler.setLevel(logging.ERROR)
+_stream_handler.setLevel(logging.INFO)
 logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler], force=True)
 for _noisy in ("pyrogram", "pyrogram.session", "pyrogram.connection", "httpx", "urllib3", "pymongo", "asyncio"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)
@@ -135,6 +136,7 @@ BOT_CONFIG_SPEC = {
     "DEVELOPER_NAME": ("str", "brand"), "DEVELOPER_USERNAME": ("str", "brand"), "CHANNEL_LINK": ("str", "brand"),
     "UPSTREAM_REPO": ("repo", "sys"), "UPSTREAM_BRANCH": ("str", "sys"),
     "UI_STYLE": ("choice", "sys"),
+    "RESTART_CONFIRM": ("bool", "sys"),
     "MAINTENANCE": ("bool", "maint"), "MAINTENANCE_MSG": ("text", "maint"),
 }
 BOT_CONFIG_DEFAULTS = {
@@ -152,6 +154,7 @@ BOT_CONFIG_DEFAULTS = {
     "DEVELOPER_NAME": DEVELOPER_NAME, "DEVELOPER_USERNAME": DEVELOPER_USERNAME, "CHANNEL_LINK": CHANNEL_LINK,
     "UPSTREAM_REPO": UPSTREAM_REPO, "UPSTREAM_BRANCH": UPSTREAM_BRANCH,
     "UI_STYLE": "minimal",
+    "RESTART_CONFIRM": True,
     "MAINTENANCE": False, "MAINTENANCE_MSG": "",
 }
 SIZE_CAPS = {"MAX_FILE_SIZE_NORMAL": 2000 * 1024 * 1024, "MAX_FILE_SIZE_PREMIUM": 4 * 1024 * 1024 * 1024}
@@ -2159,6 +2162,44 @@ async def callback_manager(client, query: CallbackQuery):
             
             await update_user_status(user_id)
         
+        elif data == "rs_yes":
+            if query.from_user.id != ADMIN_ID:
+                return await query.answer("Admin only", show_alert=True)
+            await query.answer("Restarting...")
+            await query.message.edit_text(Theme.RESTARTING)
+            await _do_restart(query.message)
+
+        elif data == "rs_no":
+            if query.from_user.id != ADMIN_ID:
+                return await query.answer("Admin only", show_alert=True)
+            await query.answer("Cancelled")
+            await query.message.edit_text(Theme.RESTART_CANCELLED)
+
+        elif data == "log_paste":
+            if not os.path.exists(LOG_FILE) or os.path.getsize(LOG_FILE) == 0:
+                return await query.answer("Log file is empty", show_alert=True)
+            await query.answer("Uploading...")
+            try:
+                with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+                    link = await web_paste(f.read())
+            except Exception as e:
+                logger.error(f"log paste: {e}")
+                link = None
+            if not link:
+                return await query.answer(Theme.LOG_PASTE_FAIL, show_alert=True)
+            text, kb = log_view()
+            b = ButtonMaker()
+            b.ubutton(Theme.LOG_BTNS["paste"], link, style=enums.ButtonStyle.PRIMARY)
+            for row in (kb.inline_keyboard if kb else []):
+                for btn_ in row:
+                    if btn_.callback_data:
+                        b.ibutton(btn_.text, btn_.callback_data,
+                                  "footer" if btn_.callback_data in ("adm_home", "close_all") else None)
+            try:
+                await query.message.edit_text(text, reply_markup=b.build_menu(2))
+            except MessageNotModified:
+                pass
+
         elif data == "log_refresh":
             text, kb = log_view()
             try:
@@ -2526,9 +2567,8 @@ async def broadcast_cmd(client, message):
         f"</blockquote>"
     )
 
-@bot.on_message(filters.command(["restart", "r"]) & filters.user(ADMIN_ID))
-async def restart_bot(client, message):
-    m = await message.reply_text(Theme.RESTARTING, reply_to_message_id=message.id)
+async def _do_restart(m):
+    logger.info("Restart requested by admin")
     try:
         with open(RESTART_FILE, "w") as f:
             json.dump({"chat": m.chat.id, "mid": m.id}, f)
@@ -2536,6 +2576,18 @@ async def restart_bot(client, message):
         logger.warning(f"could not write restart marker: {e}")
     await asyncio.sleep(1.5)
     os.execl(sys.executable, sys.executable, *sys.argv)
+
+
+@bot.on_message(filters.command(["restart", "r"]) & filters.user(ADMIN_ID))
+async def restart_bot(client, message):
+    if cfg("RESTART_CONFIRM"):
+        b = ButtonMaker()
+        b.ibutton(Theme.RESTART_BTNS["yes"], "rs_yes", style=enums.ButtonStyle.DANGER)
+        b.ibutton(Theme.RESTART_BTNS["no"], "rs_no")
+        return await message.reply_text(Theme.RESTART_CONFIRM, reply_markup=b.build_menu(2),
+                                        reply_to_message_id=message.id)
+    m = await message.reply_text(Theme.RESTARTING, reply_to_message_id=message.id)
+    await _do_restart(m)
 
 @bot.on_message(filters.command("ban") & filters.user(ADMIN_ID))
 async def ban_user_cmd(client, message):
@@ -3213,6 +3265,49 @@ async def poster_command(client, message):
     text, kb = poster_results_view(sid)
     await status.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
 
+PASTE_API = "https://tjfiles.tjbots.chatgpt.site/api/"
+
+
+def _paste_upload(content):
+    """POST the log to TJ Files paste; returns the link or None. Stdlib only."""
+    boundary = "----TjPaste" + uuid.uuid4().hex
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="content"\r\n\r\n'
+        f"{content}\r\n--{boundary}--\r\n"
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        PASTE_API, data=body,
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) TJ-Rename-Bot",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=60) as r:
+        res = json.loads(r.read().decode("utf-8", "replace"))
+        status = r.status
+    pid = (res.get("payload") or {}).get("id")
+    if status in (200, 201) and pid:
+        return PASTE_API.removesuffix("api/") + str(pid)
+    logger.error(f"Web Paste Failed: {status} {res.get('error')}")
+    return None
+
+
+async def web_paste(text):
+    """Upload log text, trimming to the newest part when it is too big."""
+    for content in (text, text[-1_000_000:], text[-200_000:]):
+        try:
+            link = await asyncio.to_thread(_paste_upload, content)
+            if link:
+                return link
+        except Exception as e:
+            logger.error(f"Web Paste Failed: {e}")
+        if len(content) <= 200_000:
+            break
+    return None
+
+
 LOG_TAIL_CHARS = 3200
 
 
@@ -3246,6 +3341,7 @@ def log_view():
     b = ButtonMaker()
     b.ibutton(Theme.LOG_BTNS["refresh"], "log_refresh")
     b.ibutton(Theme.LOG_BTNS["file"], "log_file")
+    b.ibutton(Theme.LOG_BTNS["paste"], "log_paste")
     b.ibutton("◀️", "adm_home", "footer")
     b.ibutton("❌", "close_all", "footer")
     return Theme.LOG_DISPLAY.format(lines=count, body=esc(body)), b.build_menu(2)

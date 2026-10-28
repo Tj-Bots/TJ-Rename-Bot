@@ -415,7 +415,15 @@ class _LegacyTheme:
 <blockquote expandable><code>{body}</code></blockquote>"""
     LOG_EMPTY = "<i>Log file is empty.</i>"
     LOG_MISSING = "<i>No log file yet.</i>"
-    LOG_BTNS = {"file": "📄 Full File", "refresh": "♻️ Refresh"}
+    LOG_BTNS = {"file": "📄 Full File", "refresh": "♻️ Refresh", "paste": "📨 Web Paste"}
+    LOG_UPLOADING = "<i>Uploading log...</i>"
+    LOG_PASTE_FAIL = "Web Paste failed. Check connection."
+    RESTART_CONFIRM = """⌬ <b><i>Restart Bot :</i></b>
+
+<blockquote>➲ All running tasks will be cancelled.
+➲ Are you sure?</blockquote>"""
+    RESTART_BTNS = {"yes": "✅ Yes, Restart", "no": "❌ Cancel"}
+    RESTART_CANCELLED = "<i>Restart cancelled.</i>"
     RESTARTING = "🔄 <i>Restarting...</i>"
     RESTART_SUCCESS = (
         "⌬ <b><i>Restarted Successfully!</i></b>\n"
@@ -710,6 +718,7 @@ class MinimalTheme(_LegacyTheme):
         "DEVELOPER_NAME": "Name shown in the bot footer", "DEVELOPER_USERNAME": "Contact username for plans (no @)",
         "CHANNEL_LINK": "Channel link shown in About",
         "UI_STYLE": "Look of every bot message: Minimal or Emoji",
+        "RESTART_CONFIRM": "Ask for confirmation before /restart",
         "UPSTREAM_REPO": "GitHub repo the bot updates from on every restart (needs a restart)",
         "UPSTREAM_BRANCH": "Branch the bot updates from on every restart (needs a restart)",
     }
@@ -947,7 +956,15 @@ class MinimalTheme(_LegacyTheme):
 <blockquote expandable><code>{body}</code></blockquote>"""
     LOG_EMPTY = "<i>Log file is empty.</i>"
     LOG_MISSING = "<i>No log file yet.</i>"
-    LOG_BTNS = {"file": "Full File", "refresh": "Refresh"}
+    LOG_BTNS = {"file": "Full File", "refresh": "Refresh", "paste": "Web Paste"}
+    LOG_UPLOADING = "<i>Uploading log...</i>"
+    LOG_PASTE_FAIL = "Web Paste failed. Check connection."
+    RESTART_CONFIRM = """㊂ <b><u>Restart Bot :</u></b>
+
+<blockquote>➲ All running tasks will be cancelled.
+➲ Are you sure?</blockquote>"""
+    RESTART_BTNS = {"yes": "Yes, Restart", "no": "Cancel"}
+    RESTART_CANCELLED = "<i>Restart cancelled.</i>"
     RESTARTING = "<i>Restarting...</i>"
     RESTART_SUCCESS = """⌬ <b><i>Restarted Successfully!</i></b>
 <blockquote>╭ <b>Date:</b> {date}
