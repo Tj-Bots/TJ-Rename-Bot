@@ -193,6 +193,8 @@ class _LegacyTheme:
         "size": "Send a size: <code>1950MB</code>, <code>2GB</code>, <code>4G</code> (max 4GB).",
         "text": "Send the note shown to users (HTML allowed, max 500 chars). Send <code>-</code> to clear.",
     }
+    BSET_GROUP_NAMES = {"quota": "📊 Daily Quotas", "conc": "⚡ Concurrency", "limits": "🚦 Limits & Cooldown",
+                        "price": "💎 Plans & Pricing", "brand": "🏷 Branding", "sys": "⚙️ System", "maint": "🛠 Maintenance"}
     BSET_BTNS = {"default": "↺ Use Default", "reset_all": "♻️ Reset All to Default", "maint_on": "🛠 Maintenance: ✅ ON", "maint_off": "🛠 Maintenance: ❌ OFF"}
     BSET_SAVED = "✅ {label} = {value}"
     BSET_RESET_DONE = "All bot settings reset to default"
@@ -408,6 +410,12 @@ class _LegacyTheme:
 
     PING = "<i>🏓 Starting Ping...</i>"
     PING_VALUE = "🏓 <b>Pong!</b> <code>{ms} ms</code>\n<blockquote>⏳ <b>Uptime:</b> {uptime}</blockquote>"
+    LOG_DISPLAY = """⌬ <b><i>Showing Last {lines} Lines :</i></b>
+
+<blockquote expandable><code>{body}</code></blockquote>"""
+    LOG_EMPTY = "<i>Log file is empty.</i>"
+    LOG_MISSING = "<i>No log file yet.</i>"
+    LOG_BTNS = {"file": "📄 Full File", "refresh": "♻️ Refresh"}
     RESTARTING = "🔄 <i>Restarting...</i>"
     RESTART_SUCCESS = (
         "⌬ <b><i>Restarted Successfully!</i></b>\n"
@@ -670,7 +678,12 @@ class MinimalTheme(_LegacyTheme):
 <blockquote>{lines}</blockquote>
 
 <blockquote>➲ <b>Page :</b> {page}/{pages}
-➲ Press a variable to edit it</blockquote>"""
+➲ Pick a section to see its variables</blockquote>"""
+    BSET_GROUP = """㊂ <b><u>{title} :</u></b>
+
+<blockquote>{lines}</blockquote>
+
+<blockquote>➲ Press a variable to edit it</blockquote>"""
     BSET_EDIT = """㊂ <b><u>Edit {key} :</u></b>
 
 <blockquote>╭<b> Description :</b> <i>{desc}</i>
@@ -711,6 +724,8 @@ class MinimalTheme(_LegacyTheme):
         "choice": "Use the buttons below. <b>Minimal</b> is the clean look, <b>Emoji</b> is the classic look with emojis.",
         "secret": "Send the Pyrogram session string. Your message is deleted right away. Send <code>-</code> to go back to the .env one.",
     }
+    BSET_GROUP_NAMES = {"quota": "Daily Quotas", "conc": "Concurrency", "limits": "Limits & Cooldown",
+                        "price": "Plans & Pricing", "brand": "Branding", "sys": "System", "maint": "Maintenance"}
     BSET_BTNS = {"vars": "Config Variables", "reset_all": "Reset All Config", "default": "Default",
                  "on": "Enable", "off": "Disable", "yes": "Yes!, Reset"}
     BSET_SAVED = "{label} = {value}"
@@ -927,6 +942,12 @@ class MinimalTheme(_LegacyTheme):
     SPEED_FAIL = "<b>ERROR:</b> <i>Speedtest failed: {err}</i>"
     PING = "<i>Starting Ping..</i>"
     PING_VALUE = "<b>Pong</b>\n╰ <code>{ms} ms..</code>"
+    LOG_DISPLAY = """㊂ <b><u>Last {lines} Lines :</u></b>
+
+<blockquote expandable><code>{body}</code></blockquote>"""
+    LOG_EMPTY = "<i>Log file is empty.</i>"
+    LOG_MISSING = "<i>No log file yet.</i>"
+    LOG_BTNS = {"file": "Full File", "refresh": "Refresh"}
     RESTARTING = "<i>Restarting...</i>"
     RESTART_SUCCESS = """⌬ <b><i>Restarted Successfully!</i></b>
 <blockquote>╭ <b>Date:</b> {date}

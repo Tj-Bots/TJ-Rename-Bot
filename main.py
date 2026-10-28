@@ -29,13 +29,24 @@ import platform
 import http.client
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery, InputMediaPhoto, InputMediaDocument, PreCheckoutQuery, LabeledPrice
 from pyrogram.errors import FloodWait, MessageNotModified, MessageIdInvalid
+from logging.handlers import RotatingFileHandler
 from hachoir.metadata import extractMetadata
 from hachoir.parser import createParser
 from theme import Theme, STYLES, set_style, ButtonMaker, mark, pager, tree, menu, btn, onoff, tick, back_close, esc, short, bar as theme_bar
 import tmdb as tmdb_mod
 from pyrogram.types import BotCommand, BotCommandScopeChat, LinkPreviewOptions
 
-logging.basicConfig(level=logging.ERROR, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+LOG_FILE = "log.txt"
+_log_fmt = logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s", datefmt="%d-%b-%y %H:%M:%S")
+_file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=2, encoding="utf-8")
+_file_handler.setFormatter(_log_fmt)
+_file_handler.setLevel(logging.INFO)
+_stream_handler = logging.StreamHandler()
+_stream_handler.setFormatter(_log_fmt)
+_stream_handler.setLevel(logging.ERROR)
+logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler], force=True)
+for _noisy in ("pyrogram", "pyrogram.session", "pyrogram.connection", "httpx", "urllib3", "pymongo", "asyncio"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -1270,6 +1281,7 @@ def uset_view(uid, user, config, screen="home"):
         defaults = DEFAULT_USER(uid)
         if any(config.get(k, defaults[k]) != defaults[k] for k in USET_RESET_KEYS):
             b.ibutton(Theme.USET_HOME_BTNS["reset"], "us_reset")
+        b.ibutton("◀️", "ui_home", "footer")
         b.ibutton("❌", "close_all", "footer")
         return text, b.build_menu(2)
     if screen == "quota":
@@ -1361,7 +1373,7 @@ def bset_home_view():
                                   userbot=(userbot_info or "Active") if premium_client else "Off",
                                   maint="Enabled" if cfg("MAINTENANCE") else "Disabled")
     b = ButtonMaker()
-    b.ibutton(Theme.BSET_BTNS["vars"], "bs_v_0")
+    b.ibutton(Theme.BSET_BTNS["vars"], "bs_vars")
     b.ibutton(mark(cfg("MAINTENANCE"), "Maintenance"), "bs_tg_MAINTENANCE")
     if BOT_CONFIG:
         b.ibutton(Theme.BSET_BTNS["reset_all"], "bs_reset")
@@ -1371,25 +1383,20 @@ def bset_home_view():
 
 
 def bset_vars_view(page=0):
-    pages = max(1, math.ceil(len(BSET_KEYS) / BSET_PER_PAGE))
-    page %= pages
-    keys = BSET_KEYS[page * BSET_PER_PAGE:(page + 1) * BSET_PER_PAGE]
-    lines = tree([(k, f"<code>{esc(fmt_config_value(k))}</code>") for k in keys])
-    text = Theme.BSET_VARS.format(lines=lines, page=page + 1, pages=pages)
+    lines = tree([(Theme.BSET_GROUP_NAMES.get(g, g.title()), f"{len(BSET_GROUPED[g])} vars")
+                  for g in BSET_GROUP_ORDER if BSET_GROUPED.get(g)])
+    text = Theme.BSET_VARS.format(lines=lines, page=1, pages=1)
     b = ButtonMaker()
-    for k in keys:
-        b.ibutton(k, f"bs_e_{k}")
-    b.ibutton("◀️", "bs_home", "l_body")
-    b.ibutton("❌", "close_all", "l_body")
-    if pages > 1:
-        for n in range(pages):
-            b.ibutton(str(n + 1), f"bs_v_{n}", "footer",
-                      style=enums.ButtonStyle.SUCCESS if n == page else enums.ButtonStyle.DEFAULT)
-    return text, b.build_menu(2, lb_cols=2, f_cols=8)
+    for g in BSET_GROUP_ORDER:
+        if BSET_GROUPED.get(g):
+            b.ibutton(Theme.BSET_GROUP_NAMES.get(g, g.title()), f"bs_g_{g}")
+    b.ibutton("◀️", "bs_home", "footer")
+    b.ibutton("❌", "close_all", "footer")
+    return text, b.build_menu(2)
 
 
 def bset_page_of(key):
-    return BSET_KEYS.index(key) // BSET_PER_PAGE
+    return BOT_CONFIG_SPEC[key][1]
 
 
 def bset_prompt_view(key, error=None):
@@ -1412,13 +1419,28 @@ def bset_prompt_view(key, error=None):
                       style=enums.ButtonStyle.SUCCESS if cur == name else enums.ButtonStyle.DEFAULT)
     if key in BOT_CONFIG:
         b.ibutton(Theme.BSET_BTNS["default"], f"bs_def_{key}")
-    b.ibutton("◀️", f"bs_v_{bset_page_of(key)}", "footer")
+    b.ibutton("◀️", f"bs_g_{bset_page_of(key)}", "footer")
     b.ibutton("❌", "close_all", "footer")
     return text, b.build_menu(2)
 
 
+BSET_GROUP_ORDER = ["quota", "conc", "limits", "price", "brand", "sys", "maint"]
+BSET_GROUPED = {g: [k for k, (_, grp) in BOT_CONFIG_SPEC.items() if grp == g] for g in BSET_GROUP_ORDER}
+
+
 def bset_group_view(group):
-    return bset_vars_view(0)
+    keys = BSET_GROUPED.get(group) or []
+    if not keys:
+        return bset_vars_view(0)
+    title = Theme.BSET_GROUP_NAMES.get(group, group.title())
+    lines = tree([(k, f"<code>{esc(fmt_config_value(k))}</code>") for k in keys])
+    text = Theme.BSET_GROUP.format(title=title, lines=lines)
+    b = ButtonMaker()
+    for k in keys:
+        b.ibutton(k, f"bs_e_{k}")
+    b.ibutton("◀️", "bs_vars", "footer")
+    b.ibutton("❌", "close_all", "footer")
+    return text, b.build_menu(2)
 
 
 def admin_panel_view():
@@ -1434,7 +1456,9 @@ def admin_panel_view():
     b = ButtonMaker()
     b.ibutton(A["bset"], "bs_home")
     b.ibutton(A["stats"], "stats_bot")
+    b.ibutton("Logs", "log_refresh")
     b.ibutton(mark(cfg("MAINTENANCE"), A["maint"]), "bs_tg_MAINTENANCE_A")
+    b.ibutton("◀️", "ui_home", "footer")
     b.ibutton("❌", "close_all", "footer")
     return text, b.build_menu(2)
 
@@ -1495,6 +1519,7 @@ async def stats_view(page="bot"):
     b = ButtonMaker()
     for k, v in Theme.STATS_BTNS.items():
         b.ibutton(mark(page == k, v.split(" ", 1)[-1]), f"stats_{k}")
+    b.ibutton("◀️", "adm_home", "footer")
     b.ibutton("❌", "close_all", "footer")
     return text, b.build_menu(2)
 
@@ -1526,9 +1551,15 @@ async def admin_callback(client, query, uid, data):
     if data.startswith("stats_"):
         text, kb = await stats_view(data[6:])
         return await _edit(query, text, kb)
-    if data == "bs_home" or data.startswith("bs_g_"):
+    if data == "bs_home":
         temp_context.pop(f"input_{uid}", None)
-        return await _edit(query, *(bset_home_view() if data == "bs_home" else bset_vars_view(0)))
+        return await _edit(query, *bset_home_view())
+    if data == "bs_vars":
+        temp_context.pop(f"input_{uid}", None)
+        return await _edit(query, *bset_vars_view(0))
+    if data.startswith("bs_g_") and data[5:] in BSET_GROUPED:
+        temp_context.pop(f"input_{uid}", None)
+        return await _edit(query, *bset_group_view(data[5:]))
     if data.startswith("bs_v_") and data[5:].isdigit():
         temp_context.pop(f"input_{uid}", None)
         return await _edit(query, *bset_vars_view(int(data[5:])))
@@ -2128,6 +2159,24 @@ async def callback_manager(client, query: CallbackQuery):
             
             await update_user_status(user_id)
         
+        elif data == "log_refresh":
+            text, kb = log_view()
+            try:
+                await query.message.edit_text(text, reply_markup=kb)
+            except MessageNotModified:
+                pass
+            await query.answer("Refreshed")
+
+        elif data == "log_file":
+            if not os.path.exists(LOG_FILE) or os.path.getsize(LOG_FILE) == 0:
+                return await query.answer("Log file is empty", show_alert=True)
+            await query.answer("Sending...")
+            try:
+                await client.send_document(query.message.chat.id, document=LOG_FILE,
+                                           file_name="log.txt", reply_to_message_id=query.message.id)
+            except Exception as e:
+                logger.error(f"send log file: {e}")
+
         elif data == "close_all":
             try:
                 uid = str(query.from_user.id)
@@ -3164,6 +3213,50 @@ async def poster_command(client, message):
     text, kb = poster_results_view(sid)
     await status.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
 
+LOG_TAIL_CHARS = 3200
+
+
+def _read_log_tail():
+    if not os.path.exists(LOG_FILE):
+        return None
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except Exception as e:
+        logger.error(f"read log: {e}")
+        return None
+    body, count = "", 0
+    for line in reversed(lines):
+        if len(body) + len(line) + 1 > LOG_TAIL_CHARS:
+            break
+        body = line + "\n" + body
+        count += 1
+    if not count and lines:
+        body, count = lines[-1][-LOG_TAIL_CHARS:], 1
+    return body.strip(), count
+
+
+def log_view():
+    data = _read_log_tail()
+    if data is None:
+        return Theme.LOG_MISSING, close_kb()
+    body, count = data
+    if not body:
+        return Theme.LOG_EMPTY, close_kb()
+    b = ButtonMaker()
+    b.ibutton(Theme.LOG_BTNS["refresh"], "log_refresh")
+    b.ibutton(Theme.LOG_BTNS["file"], "log_file")
+    b.ibutton("◀️", "adm_home", "footer")
+    b.ibutton("❌", "close_all", "footer")
+    return Theme.LOG_DISPLAY.format(lines=count, body=esc(body)), b.build_menu(2)
+
+
+@bot.on_message(filters.command(["log", "logs"]) & filters.user(ADMIN_ID))
+async def log_command(client, message):
+    text, kb = log_view()
+    await message.reply_text(text, reply_markup=kb, reply_to_message_id=message.id)
+
+
 @bot.on_message(filters.command("ping"))
 async def ping_command(client, message):
     t0 = time.time()
@@ -3588,6 +3681,7 @@ async def main():
             BotCommand("settings", "Your settings"), BotCommand("status", "Active tasks"),
             BotCommand("admin", "Admin panel"), BotCommand("bsetting", "Bot settings (limits, maintenance)"),
             BotCommand("stats", "Bot statistics"), BotCommand("speedtest", "Server speedtest"),
+            BotCommand("log", "Show recent bot logs"),
             BotCommand("mediainfo", "MediaInfo of replied media/link"),
             BotCommand("cover", "Add cover to replied video"),
             BotCommand("poster", "Search TMDB posters & backdrops"), BotCommand("ping", "Check bot latency"),
