@@ -53,47 +53,84 @@ def _int(s):
         return 0
 
 
+_NOISE = re.compile(
+    r"(?<![A-Za-z])(?:(?:dd|ddp|dd\+|aac|ac3|eac3|dts|flac|opus)[\s._]?\d[\s._]\d)|(?<![A-Za-z])(?:x26[45]|h\.?26[45]|hevc|avc|aac\d?|ac3|eac3|dd\+?|ddp|dts(?:-hd)?|flac|web-?dl|web-?rip|blu-?ray|"
+    r"bd-?rip|br-?rip|hd-?rip|dvd-?rip|hdtv|hdr|10bit|multi|dual|subs?|dubbed|\d+\s*[km]bps)(?![A-Za-z])|\b[257]\.[01]\b", re.I)
+_SE = re.compile(r"(?<![A-Za-z])S\s*0*(\d{1,2})\s*[.\-_ ]*E\s*0*(\d{1,4})(?!\d)", re.I)
+_NXM = re.compile(r"(?<!\d)0*(\d{1,2})x0*(\d{1,3})(?!\d)", re.I)
+# season / episode words in many languages (Hebrew, Arabic, Cyrillic, CJK, Latin ...); numbers do the real work
+_SEASON_W = re.compile(
+    r"(?<!\w)(?:season|saison|staffel|temporada|stagione|sezon|sezona|сезон|עונה|موسم|الموسم|シーズン|시즌|seizoen|s[äa]song)"
+    r"[\s.\-_:#]*0*(\d{1,2})(?!\d)|第\s*0*(\d{1,2})\s*[季期]|(?<!\d)0*(\d{1,2})\s*(?:기|期|季)", re.I)
+_SEASON_PRE = re.compile(r"(?<!\d)0*(\d{1,2})(?:st|nd|rd|th)?\.?\s*(?:season|saison|staffel|temporada|stagione|sezon|сезон|עונה|موسم)(?!\w)", re.I)
+_EP_PRE = re.compile(r"(?<!\d)0*(\d{1,4})(?:st|nd|rd|th)?\.?\s*(?:episode|[eé]pisode|folge|b[öo]l[üu]m|серия|эпизод|פרק|حلقة|odcinek|capitulo|capítulo)(?!\w)", re.I)
+_EP_W = re.compile(
+    r"(?<![A-Za-z])E(?:p|pisode|pisodio|pisod)?[\s.\-_:#]*0*(\d{1,4})(?!\d)|"
+    r"(?<!\w)(?:[eé]pisode|folge|capítulo|capitulo|cap|episodio|bölüm|bolum|odcinek|aflevering|avsnitt|afsnit|jakso|díl|rész|tập|"
+    r"серия|серии|эпизод|эп|פרק|חלק|حلقة|الحلقة|حلقه|ตอนที่|ตอน|chapter|ch|part)[\s.\-_:#]*0*(\d{1,4})(?!\d)|"
+    r"第\s*0*(\d{1,4})\s*[話话集回章]|(?<!\d)0*(\d{1,4})\s*(?:話|话|集|화|회|話目)", re.I)
+_NUM = re.compile(r"(?<![A-Za-z\d])0*(\d{1,4})(?![A-Za-z\d])")
+
+
+def _first(m):
+    return next((g for g in m.groups() if g), None)
+
+
+def _tidy_title(t):
+    t = _YEAR.sub(" ", t.replace("-", " "))
+    t = _BRACKET.sub(" ", t)
+    return " ".join(t.split())
+
+
 def extract_meta(filename):
+    """Language-independent: season/episode come from the NUMBERS (SxxEyy, 1x04, 'word N', '- N', 第N話 ...)."""
     meta = {"title": "Unknown", "season": "01", "episode": "01", "quality": "1080p", "chapter": "001"}
-    clean = filename or ""
-    for rx in _UPLOADER_RX:
-        clean = rx.sub("", clean)
-    clean = clean.strip()
-    for p in _TITLE_PATTERNS:
-        m = p.search(clean)
-        if m:
-            title = m.group(1).replace(".", " ").replace("-", " ").strip()
-            title = _YEAR.sub(" ", title)
-            title = _BRACKET.sub(" ", title)
-            title = _TRAIL.sub("", title.strip())
-            meta["title"] = " ".join(title.split()) or "Unknown"
-            if m.lastindex and m.lastindex >= 3:
-                meta["season"] = f"{_int(m.group(2)):02d}"
-                meta["episode"] = f"{_int(m.group(3)):02d}"
-            break
-    if meta["title"] == "Unknown":
-        base = os.path.splitext(clean)[0].replace(".", " ").replace("_", " ")
-        base = _QUAL.sub(" ", _BRACKET.sub(" ", base))
-        base = _TRAIL.sub("", base.strip())
-        t = " ".join(base.split())
-        if t:
-            meta["title"] = t
-    sm = _SEASON.search(filename or "")
-    if sm:
-        meta["season"] = f"{_int(sm.group(1)):02d}"
-    hm = _SEASON_HE.search(filename or "")
-    if hm:
-        meta["season"] = f"{_int(hm.group(1)):02d}"
-    for p in _EP_PATTERNS:
-        m = p.search(clean)
-        if m:
-            n = _int(m.group(m.lastindex))
-            if 0 < n < 2000:
-                meta["episode"] = f"{n:02d}"
-                break
-    qm = _QUAL.search(filename or "")
+    name = filename or ""
+    qm = _QUAL.search(name)
     if qm:
         meta["quality"] = qm.group(1)
+    clean = name
+    for rx in _UPLOADER_RX:
+        clean = rx.sub("", clean)
+    base, ext = os.path.splitext(clean.strip())
+    if len(ext) > 5 or " " in ext:
+        base = clean.strip()
+    base = base.replace("_", " ")
+    base = re.sub(r"(?<=\D)\.|\.(?=\D)|(?<=\D)\.(?=\d)", " ", base)
+    base = _NOISE.sub(" ", base)
+    base = _QUAL.sub(" ", base)
+    cut = None
+    m = _SE.search(base) or _NXM.search(base)
+    if m:
+        meta["season"], meta["episode"] = f"{_int(m.group(1)):02d}", f"{_int(m.group(2)):02d}"
+        cut = m.start()
+    else:
+        ps, pe = _SEASON_PRE.search(base), _EP_PRE.search(base)
+        ws, we = _SEASON_W.search(base), _EP_W.search(base)
+        if ps and pe:      # "2. Sezon 4. Bölüm", "2 сезон 7 серия": numbers come before the words
+            sm, em = ps, pe
+        elif ws and we:    # "Season 2 Episode 5", "עונה 2 פרק 7": numbers come after the words
+            sm, em = ws, we
+        else:
+            sm, em = ws or ps, we or pe
+        if sm:
+            meta["season"] = f"{_int(_first(sm)):02d}"
+            cut = sm.start()
+        if em:
+            meta["episode"] = f"{_int(_first(em)):02d}"
+            cut = em.start() if cut is None else min(cut, em.start())
+    if cut is None:
+        plain = _BRACKET.sub(" ", base)
+        plain = _YEAR.sub(" ", plain)
+        nums = [x for x in _NUM.finditer(plain) if 0 < _int(x.group(1)) < 2000]
+        if nums:
+            n = nums[-1]
+            meta["episode"] = f"{_int(n.group(1)):02d}"
+            meta["title"] = _tidy_title(plain[:n.start()]) or "Unknown"
+            return meta
+        meta["title"] = _tidy_title(_BRACKET.sub(" ", base)) or "Unknown"
+        return meta
+    meta["title"] = _tidy_title(_BRACKET.sub(" ", base[:cut])) or _tidy_title(base) or "Unknown"
     return meta
 
 

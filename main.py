@@ -81,7 +81,7 @@ DUMP_CHANNEL = int(os.getenv("DUMP_CHANNEL"))
 
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 DEVELOPER_NAME = "꧁ 𝕋𝕛 𝔸𝕕𝕞𝕚𝕟 ꧂"
 DEVELOPER_USERNAME = "Tj_Bots_Admin"
 DEVELOPER_LINK = f"https://t.me/{DEVELOPER_USERNAME}"

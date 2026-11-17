@@ -5,7 +5,7 @@
 **Rename, convert and manage Telegram files - with TMDB posters, MediaInfo and a full admin panel.**
 
 [![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![Pyrofork](https://img.shields.io/badge/Pyrofork-MTProto-2CA5E0?logo=telegram&logoColor=white)](https://github.com/Mayuri-Chan/pyrofork)
+[![tjgram](https://img.shields.io/badge/tjgram-MTProto-2CA5E0?logo=telegram&logoColor=white)](https://pypi.org/project/tjgram/)
 [![Demo](https://img.shields.io/badge/Demo-@TJRenameBot-2CA5E0?logo=telegram&logoColor=white)](https://t.me/TJRenameBot)
 
 </div>
@@ -24,6 +24,11 @@
 - **Plans** - Free / Test / Gold / Ultra with daily limits, size limits, cooldowns and Stars payments.
 - **Redeem codes**, broadcast, bans, user stats, speedtest and live server stats.
 - **Premium userbot** - uploads up to 4 GB through a user session, which can be added from the bot itself.
+- **High speed for Premium** - downloads and uploads with several parallel connections (the file goes through the dump channel and the userbot). Free users use the normal speed.
+- **Rich status** - one rich message per user with a *Cancel Task* button inside every task, a Yes / No confirmation and a random task id (`/cancel_<id>`). Switch with `RICH_MESSAGES` in `/bs`.
+- **AutoRename** - builds file names from a template (`{title} {season} {episode} {quality} {chapter}`, offsets like `{episode:+10}`). Detection is number based, so it works in any language.
+- **MediaInfo button** - optional `MediaInfo` button under every sent file, opening a Telegraph page.
+- **Force subscribe and shortener** - require channels (`FSUB_IDS`) and a shortener access token (`SHORTENER*`, `TOKEN_TIMEOUT`) for Free users. Set in `/bs`.
 - **Auto update** - on every start the bot pulls the latest code from this repository.
 
 ## Settings
@@ -51,6 +56,7 @@
 | `/viewthumb` `/delthumb` | | | Thumbnail |
 | `/ping` | | | Latency |
 | `/bsetting` | `/bs` | yes | Bot settings |
+| `/maintenance` | `/maint` | yes | `on [message]` / `off` / status |
 | `/admin` | `/ad` | yes | Admin panel |
 | `/stats` | `/st` | yes | Bot statistics |
 | `/speedtest` | `/sp` | yes | Server speedtest |

@@ -1,4 +1,4 @@
-tjgram[fast]
+tjgram[fast]>=2.2.31
 hachoir
 psutil
 python-dotenv
