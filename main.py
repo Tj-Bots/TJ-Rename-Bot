@@ -24,7 +24,7 @@ try:
 except Exception as e:
     print(f"auto update skipped: {e}")
 from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram import Client, filters, enums, StopTransmission, StopPropagation, idle
+from pyrogram import Client, filters, enums, StopTransmission, StopPropagation, ContinuePropagation, idle
 import json
 import platform
 import http.client
@@ -33,8 +33,10 @@ from pyrogram.errors import FloodWait, MessageNotModified, MessageIdInvalid
 from logging.handlers import RotatingFileHandler
 from hachoir.metadata import extractMetadata
 from hachoir.parser import createParser
-from theme import Theme, STYLES, set_style, ButtonMaker, mark, pager, tree, menu, btn, onoff, tick, back_close, esc, short, bar as theme_bar
+from theme import Theme, STYLES, set_style, ButtonMaker, mark, pager, tree, menu, btn, onoff, tick, back_close, esc, short, bar as theme_bar, circle_bar
 import tmdb as tmdb_mod
+from autorename import apply_template as autorename_apply
+from pyrogram.types import InputRichMessage
 from pyrogram.types import BotCommand, BotCommandScopeChat, LinkPreviewOptions, ReplyParameters
 
 LOG_FILE = "log.txt"
@@ -129,14 +131,15 @@ BOT_CONFIG_SPEC = {
     "MAX_CONCURRENT_ADMIN": ("int", "conc"),
     "COOLDOWN_NORMAL": ("int", "limits"),
     "MAX_FILE_SIZE_NORMAL": ("size", "limits"), "MAX_FILE_SIZE_PREMIUM": ("size", "limits"),
-    "SESSION_STRING": ("secret", "sys"), "DUMP_CHANNEL": ("chatid", "sys"),
+    "SESSION_STRING": ("secret", "session"), "DUMP_CHANNEL": ("chatid", "session"),
     "GOLD_STARS_PRICE": ("int", "price"), "ULTRA_STARS_PRICE": ("int", "price"),
     "GOLD_PRICE": ("str", "price"), "ULTRA_PRICE": ("str", "price"), "TEST_PRICE": ("str", "price"),
     "TEST_DURATION_DAYS": ("int", "price"), "PREMIUM_DAYS": ("int", "price"),
     "DEVELOPER_NAME": ("str", "brand"), "DEVELOPER_USERNAME": ("str", "brand"), "CHANNEL_LINK": ("str", "brand"),
     "UPSTREAM_REPO": ("repo", "sys"), "UPSTREAM_BRANCH": ("str", "sys"),
     "UI_STYLE": ("choice", "sys"),
-    "RESTART_CONFIRM": ("bool", "sys"),
+    "RESTART_CONFIRM": ("bool", "sys"), "RICH_MESSAGES": ("bool", "sys"), "FSUB_IDS": ("str", "short"),
+    "SHORTENER_ENABLED": ("bool", "short"), "SHORTENER": ("str", "short"), "SHORTENER_API": ("secret", "short"), "TOKEN_TIMEOUT": ("int", "short"),
     "MAINTENANCE": ("bool", "maint"), "MAINTENANCE_MSG": ("text", "maint"),
 }
 BOT_CONFIG_DEFAULTS = {
@@ -154,7 +157,8 @@ BOT_CONFIG_DEFAULTS = {
     "DEVELOPER_NAME": DEVELOPER_NAME, "DEVELOPER_USERNAME": DEVELOPER_USERNAME, "CHANNEL_LINK": CHANNEL_LINK,
     "UPSTREAM_REPO": UPSTREAM_REPO, "UPSTREAM_BRANCH": UPSTREAM_BRANCH,
     "UI_STYLE": "minimal",
-    "RESTART_CONFIRM": True,
+    "RESTART_CONFIRM": True, "RICH_MESSAGES": True, "FSUB_IDS": "",
+    "SHORTENER_ENABLED": False, "SHORTENER": "", "SHORTENER_API": "", "TOKEN_TIMEOUT": 86400,
     "MAINTENANCE": False, "MAINTENANCE_MSG": "",
 }
 SIZE_CAPS = {"MAX_FILE_SIZE_NORMAL": 2000 * 1024 * 1024, "MAX_FILE_SIZE_PREMIUM": 4 * 1024 * 1024 * 1024}
@@ -296,6 +300,7 @@ class TaskInfo:
         self.download_task = None
         self.upload_task = None
         self.position = 0
+        self.gid = "".join(random.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=8))
         self.stage_start = time.time()
 
 bot = Client(
@@ -310,6 +315,53 @@ bot = Client(
 )
 bot.start_time = time.time()
 
+PARALLEL_UP_SESSIONS = 8
+PARALLEL_UP_PER_SESSION = 2
+
+async def parallel_upload(uc, path, progress, progress_args):
+    """Multi-connection upload: separate Telegram sessions each send different 512KB parts of the file."""
+    PART = 512 * 1024
+    size = os.path.getsize(path)
+    total = (size + PART - 1) // PART
+    file_id = uc.rnd_id()
+    fd = os.open(path, os.O_RDONLY)
+    nxt, sent = [0], [0]
+    sessions, jobs = [], []
+    async def worker(s):
+        while nxt[0] < total:
+            i = nxt[0]
+            nxt[0] += 1
+            data = await asyncio.to_thread(os.pread, fd, PART, i * PART)
+            for attempt in range(6):
+                try:
+                    await s.invoke(raw.functions.upload.SaveBigFilePart(file_id=file_id, file_part=i, file_total_parts=total, bytes=data), sleep_threshold=30)
+                    break
+                except Exception:
+                    if attempt == 5:
+                        raise
+                    await asyncio.sleep(1 + attempt)
+            sent[0] += len(data)
+            if progress:
+                await progress(min(sent[0], size), size, *progress_args)
+    try:
+        dc = await uc.storage.dc_id()
+        for _ in range(PARALLEL_UP_SESSIONS):
+            sessions.append(await uc.get_session(dc, is_media=True, temporary=True))
+        jobs = [asyncio.create_task(worker(s)) for s in sessions for _ in range(PARALLEL_UP_PER_SESSION)]
+        await asyncio.gather(*jobs)
+    except BaseException:
+        for j in jobs:
+            j.cancel()
+        raise
+    finally:
+        os.close(fd)
+        for s in sessions:
+            try:
+                await s.stop()
+            except Exception:
+                pass
+    return raw.types.InputFileBig(id=file_id, parts=total, name=os.path.basename(path))
+
 def make_premium_client(session):
     if not session or session == "your_session_string_here":
         return None
@@ -322,6 +374,13 @@ def make_premium_client(session):
             max_concurrent_transmissions=10,
             no_updates=True
         )
+        _orig_save = c.save_file
+
+        async def save_file(path, file_id=None, file_part=0, progress=None, progress_args=()):
+            if not isinstance(path, (str, os.PathLike)) or file_id is not None or os.path.getsize(path) <= 10 * 1024 * 1024:
+                return await _orig_save(path, file_id=file_id, file_part=file_part, progress=progress, progress_args=progress_args)
+            return await parallel_upload(c, path, progress, progress_args)
+        c.save_file = save_file
         logger.info("Premium client initialized")
         return c
     except Exception as e:
@@ -424,6 +483,11 @@ DEFAULT_USER = lambda uid: {
     "remname": "",
     "rename": "ask",
     "screenshots": 0,
+    "cap_font": "",
+    "mediainfo": False,
+    "autorename": False,
+    "rename_method": "auto",
+    "remname_auto": "",
     "spoiler": False,
     "auto_thumb": False,
     "thumb_src": None,
@@ -563,6 +627,12 @@ class _SafeFmt(dict):
     def __missing__(self, key):
         return "{" + key + "}"
 
+def apply_cap_font(cap, config):
+    """Wrap the rendered caption in the user's Caption Font tag (b/i/u/s/code/spoiler)."""
+    tag = {"b": "b", "i": "i", "u": "u", "s": "s", "code": "code", "spoiler": "spoiler"}.get((config or {}).get("cap_font") or "")
+    return f"<{tag}>{cap}</{tag}>" if tag and cap else cap
+
+
 def render_caption(template, filename, filesize_bytes, duration=0):
     """Fill caption variables; unknown {names} stay as-is instead of crashing."""
     title, year = tmdb_mod.clean_title(filename or "")
@@ -603,7 +673,8 @@ def get_user_config(user_id):
             if k not in u:
                 u[k] = ""; changed = True
         for k, v in (("thumb_src", None), ("audio_fmt", "mp3"), ("audio_br", "192k"),
-                     ("poster_lang", "all"), ("poster_kind", "p")):
+                     ("poster_lang", "all"), ("poster_kind", "p"), ("cap_font", ""),
+                     ("autorename", False), ("rename_method", "auto"), ("remname_auto", ""), ("mediainfo", False)):
             if k not in u:
                 u[k] = v; changed = True
         if changed:
@@ -674,7 +745,12 @@ def apply_name_rules(filename, config):
     base, ext = os.path.splitext(name)
     if len(ext) > 6 or " " in ext:
         base, ext = name, ""
-    remname = (config.get("remname") or "").strip()
+    if config.get("autorename") and config.get("rename_method", "auto") == "auto" and (config.get("remname_auto") or "").strip():
+        tpl = autorename_apply(name, config["remname_auto"].strip())
+        base, ext = os.path.splitext(tpl)
+        if len(ext) > 6 or " " in ext:
+            base, ext = tpl, ""
+    remname = (config.get("remname") or "").strip() if config.get("rename_method", "auto") != "auto" or not config.get("autorename") else ""
     if remname:
         for rule in remname.replace("\\s", " ").split("|"):
             if not rule:
@@ -726,6 +802,10 @@ def validate_user_value(key, text):
         if not text.isdigit() or not 0 <= int(text) <= 10:
             raise ValueError("send a number from 0 to 10")
         return int(text)
+    if key == "remname_auto":
+        if not text or len(text) > 200 or "{" not in text:
+            raise ValueError("use tags like {title} {season} {episode} {quality}")
+        return text
     if key == "thumb":
         raise ValueError("send a photo, not text")
     raise ValueError("unknown setting")
@@ -940,14 +1020,14 @@ async def build_task_text(task):
     speed = current / elapsed if elapsed > 0 else 0
     eta = (total - current) / speed if speed > 0 and total > current else 0
     return Theme.STATUS_TASK.format(
-        name=name, bar=theme_bar(percent, 12), percent=percent,
+        name=name, bar=circle_bar(percent), percent=percent,
         processed_label="Processed" if downloading else "Uploaded",
         done=human_size(current), total=human_size(total),
         status="Download" if downloading else "Upload",
         eta=time_formatter(eta), speed=human_size(speed),
         elapsed=time_formatter(time.time() - task.start_time),
         mode_tag="#download" if downloading else "#upload",
-        user=task.user_id, pos=task.position or 1,
+        user=task.user_id, pos=task.position or 1, gid=task.gid,
     )
 
 async def build_combined_status(user_id, page=0):
@@ -978,6 +1058,33 @@ async def build_combined_status(user_id, page=0):
     
     return all_text, total_pages, page
 
+_CANCEL_LINE = re.compile(r'(?:┖❌|<b>╰</b>) <code>/cancel_([a-z0-9]{8})</code></blockquote>\n*')
+
+def rich_status_html(text):
+    """Status text -> rich HTML: a Cancel Task button inside every task, a line between tasks."""
+    text = _CANCEL_LINE.sub(lambda mt: '<b>╰</b> <tg-button type="callback_data" style="danger" data="cxask_%s">Cancel Task</tg-button></blockquote><hr/>\n' % mt.group(1), text)
+    i = text.rfind("<hr/>")
+    if i >= 0:
+        text = text[:i] + text[i + 5:]
+    h = text.strip().replace("\n", "<br>")
+    h = re.sub(r'(?:<br>\s*)+(<(?:/?blockquote|hr|/?p)\b[^>]*>)', r'\1', h)
+    return re.sub(r'(</blockquote>|<hr/>|</p>)(?:\s*<br>)+', r'\1', h)
+
+async def _rich_put(uid, msg, combined, markup):
+    """Edit the status as a rich message; a plain one can't become rich, so a new rich one replaces it."""
+    rm = InputRichMessage(html=rich_status_html(combined))
+    if getattr(msg, "_rich", False):
+        await msg.edit_text(rich_message=rm, reply_markup=markup)
+        return msg
+    new = await bot.send_rich_message(msg.chat.id, rm, reply_markup=markup)
+    new._rich = True
+    user_status_msg[uid] = new
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+    return new
+
 async def update_user_status(user_id):
     page = user_pages.get(user_id, 0)
     combined, total_pages, current_page = await build_combined_status(user_id, page)
@@ -995,6 +1102,8 @@ async def update_user_status(user_id):
     
     if not status_msg:
         return
+    if cancel_pending.get(user_id, 0) > time.time():
+        return
     
     nav_buttons = []
     async with tasks_lock:
@@ -1006,12 +1115,14 @@ async def update_user_status(user_id):
     nav_row = []
     if total_pages > 1:
         nav_row.append(InlineKeyboardButton("⫷", callback_data=f"page_{user_id}_{(current_page - 1) % total_pages}", style=enums.ButtonStyle.PRIMARY))
-        nav_row.append(InlineKeyboardButton(f"{current_page + 1}/{total_pages}", callback_data=f"refresh_{user_id}", style=enums.ButtonStyle.PRIMARY))
+        nav_row.append(InlineKeyboardButton(f"⌬ ᴘᴀɢᴇs {current_page + 1}/{total_pages}", callback_data=f"refresh_{user_id}", style=enums.ButtonStyle.PRIMARY))
         nav_row.append(InlineKeyboardButton("⫸", callback_data=f"page_{user_id}_{(current_page + 1) % total_pages}", style=enums.ButtonStyle.PRIMARY))
     else:
-        nav_row.append(InlineKeyboardButton("♻️", callback_data=f"refresh_{user_id}", style=enums.ButtonStyle.PRIMARY))
+        nav_row.append(InlineKeyboardButton("⟳ ʀᴇꜰʀᴇsʜ", callback_data=f"refresh_{user_id}", style=enums.ButtonStyle.PRIMARY))
     
     buttons = []
+    if cfg("RICH_MESSAGES"):
+        nav_buttons = []
     
     if nav_buttons:
         for i in range(0, len(nav_buttons), 3):
@@ -1020,7 +1131,16 @@ async def update_user_status(user_id):
     buttons.append(nav_row)
     
     try:
-        await status_msg.edit_text(combined, reply_markup=InlineKeyboardMarkup(buttons))
+        if cfg("RICH_MESSAGES"):
+            try:
+                await _rich_put(user_id, status_msg, combined, InlineKeyboardMarkup(buttons))
+            except (MessageNotModified, FloodWait):
+                raise
+            except Exception as e:
+                logger.warning(f"rich status failed, plain text: {e}")
+                await status_msg.edit_text(combined, reply_markup=InlineKeyboardMarkup(buttons))
+        else:
+            await status_msg.edit_text(combined, reply_markup=InlineKeyboardMarkup(buttons))
     except (MessageNotModified, FloodWait):
         pass
     except Exception as e:
@@ -1122,7 +1242,22 @@ async def upload_to_dump(client, file_path, file_name, task_id, thumb_path=None,
         print(f"[DUMP ERROR] {e}")
         return None
 
-async def copy_from_dump_to_user(client, dump_msg, user_id, caption, reply_to_message_id, spoiler=False):
+async def mediainfo_markup(path, name, config):
+    """MediaInfo URL button under the sent file when the user turned MediaInfo on."""
+    if not config.get("mediainfo"):
+        return None
+    try:
+        proc = await asyncio.create_subprocess_exec("mediainfo", path, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+        url = await _telegraph_mediainfo(name, out.decode("utf-8", "ignore"))
+        if url:
+            return menu([[("📃 MediaInfo", None, {"url": url})]])
+    except Exception as e:
+        logger.warning(f"mediainfo button failed: {e}")
+    return None
+
+
+async def copy_from_dump_to_user(client, dump_msg, user_id, caption, reply_to_message_id, spoiler=False, reply_markup=None):
     try:
         return await client.copy_message(
             chat_id=user_id,
@@ -1130,7 +1265,8 @@ async def copy_from_dump_to_user(client, dump_msg, user_id, caption, reply_to_me
             message_id=dump_msg.id,
             caption=caption,
             reply_parameters=ReplyParameters(message_id=reply_to_message_id),
-            has_spoiler=spoiler
+            has_spoiler=spoiler,
+            reply_markup=reply_markup
         )
     except Exception as e:
         logger.error(f"Error copying from dump: {e}")
@@ -1175,13 +1311,22 @@ def back_kb(back):
 
 @bot.on_message(filters.command("start"))
 async def start_cmd(client, message):
-    get_user_config(message.from_user.id)
+    config = get_user_config(message.from_user.id)
+    arg = message.command[1] if len(message.command) > 1 else ""
+    if arg.startswith("token_"):
+        tk = config.get("token") or {}
+        if tk.get("value") == arg[6:] and tk.get("expires", 0) <= time.time():
+            tk["expires"] = time.time() + int(cfg("TOKEN_TIMEOUT"))
+            config["token"] = tk
+            _run(_save_user(message.from_user.id))
+            return await message.reply_text(f"<b>✓ Token activated</b>\nValid for {max(1, int(cfg('TOKEN_TIMEOUT')) // 3600)}h. Send your file now.")
+        return await message.reply_text("<b>This token is not valid.</b> Send a file to get a new one.")
     text = Theme.START.format(
         name=esc(message.from_user.first_name),
         dev_link=dev_link(),
         dev_name=cfg('DEVELOPER_NAME'),
     )
-    await message.reply_text(text, reply_markup=get_main_btns(), reply_parameters=ReplyParameters(message_id=message.id), link_preview_options=LinkPreviewOptions(is_disabled=True))
+    await message.reply_text(text, reply_markup=get_main_btns(), link_preview_options=LinkPreviewOptions(is_disabled=True))
 
 @bot.on_message(filters.command(["help", "h"]))
 async def help_command(client, message):
@@ -1203,10 +1348,11 @@ def _used_today(config):
 def _user_link(user):
     return f"<a href='tg://user?id={user.id}'>{esc(getattr(user, 'first_name', None) or 'User')}</a>"
 
-USET_SCREENS = ("home", "mode", "fmt", "br", "plang", "pkind", "quota", "reset")
-USET_INPUT_PARENT = {"caption": "home", "prefix": "home", "suffix": "home", "remname": "home", "thumb": "home", "screenshots": "home"}
+USET_PAGE_KEYS = ("caption", "prefix", "suffix", "remname", "remname_auto", "thumb")
+USET_SCREENS = ("home", "universal", "leech", "mode", "fmt", "br", "plang", "pkind", "capfont", "shots", "quota", "reset") + tuple(f"pg_{k}" for k in USET_PAGE_KEYS)
+USET_INPUT_PARENT = {**{k: f"pg_{k}" for k in USET_PAGE_KEYS}, "screenshots": "shots"}
 USET_RESET_KEYS = ("thumb", "thumb_src", "mode", "caption", "prefix", "suffix", "remname", "rename", "screenshots",
-                   "spoiler", "auto_thumb", "audio_fmt", "audio_br", "poster_lang", "poster_kind")
+                   "spoiler", "auto_thumb", "cap_font", "mediainfo", "autorename", "rename_method", "remname_auto", "audio_fmt", "audio_br", "poster_lang", "poster_kind")
 USET_ROUTES = {"ui_settings": "home", "st_mode": "mode", "st_rename": "home", "st_ss": "home",
                "us_auto": "home", **{f"us_{s}": s for s in USET_SCREENS}}
 LANG_NAMES = {"en": "English", "he": "Hebrew", "ar": "Arabic", "ru": "Russian", "fr": "French", "de": "German",
@@ -1230,69 +1376,168 @@ def _nxt(seq, cur):
     return seq[(seq.index(cur) + 1) % len(seq)] if cur in seq else seq[0]
 
 
+_UINFO_EXTRA = {
+    "capfont": "➲ Font applied to the caption of every file you get\n➲ <b>Regular</b> leaves the caption as it is",
+    "shots": "➲ How many screenshots are sent after every video\n➲ <b>Off</b> sends none",
+}
+_UBACK = {"mode": "us_leech", "shots": "us_leech", "capfont": "us_leech",
+          "fmt": "us_universal", "br": "us_universal", "plang": "us_universal", "pkind": "us_universal"}
+
+
+def _uset_is_set(key, config):
+    if key == "caption":
+        return (config.get("caption") or DEFAULT_CAPTION) != DEFAULT_CAPTION
+    return bool(config.get(key))
+
+
+def _uset_value(key, config):
+    v = config.get(key)
+    if key == "thumb":
+        return "<i>Exists</i>" if v else f"<i>{Theme.NOT_SET}</i>"
+    if key == "caption" and not _uset_is_set(key, config):
+        return f"<i>{Theme.NOT_SET} (Default)</i>"
+    return f"<code>{esc(short(v, 200))}</code>" if v else f"<i>{Theme.NOT_SET}</i>"
+
+
+def _uset_page_text(key, config):
+    title, label, desc, _ = Theme.USET_PAGES[key]
+    return Theme.USET_PAGE.format(title=title, label=label, value=_uset_value(key, config), desc=desc)
+
+
+def _uset_choice(uid, user, config, screen):
+    b = ButtonMaker()
+    mode = config.get("mode", "ask")
+    fmt, br = config.get("audio_fmt", "mp3"), config.get("audio_br", "192k")
+    pl, pk = config.get("poster_lang", "all"), config.get("poster_kind", "p")
+    n = int(config.get("screenshots", 0) or 0)
+    cf = config.get("cap_font") or ""
+    title, cur, opts = {
+        "mode": ("Upload Type", Theme.MODE_NAMES.get(mode, "Ask"),
+                 [(v, f"m_{k}", mode == k) for k, v in Theme.MODE_NAMES.items()]),
+        "fmt": ("Audio Format", Theme.AUDIO_FORMATS.get(fmt, ("MP3",))[0],
+                [(v[0], f"af_{k}", fmt == k) for k, v in Theme.AUDIO_FORMATS.items()]),
+        "br": ("Audio Quality", "Lossless" if fmt == "flac" else br,
+               [(r, f"ab_{r}", br == r) for r in Theme.AUDIO_BITRATES]),
+        "plang": ("Poster Language", Theme.POSTER_LANG_OPTS.get(pl, pl.upper()),
+                  [(v, f"pl_{k}", pl == k) for k, v in Theme.POSTER_LANG_OPTS.items()]),
+        "pkind": ("Poster Type", Theme.POSTER_KINDS_PL[pk],
+                  [(v, f"pk_{k}", pk == k) for k, v in Theme.POSTER_KINDS_PL.items()]),
+        "shots": ("Screenshots", "Disabled" if n <= 0 else f"{n} per video",
+                  [("Off" if i == 0 else str(i), f"ss_{i}", n == i) for i in range(11)]),
+        "capfont": ("Caption Font", Theme.CAP_FONTS.get(cf, "Regular"),
+                    [(v, f"cf_{k or 'none'}", cf == k) for k, v in Theme.CAP_FONTS.items()]),
+    }[screen]
+    info = Theme.USET_CHOICE_INFO.get(screen) or _UINFO_EXTRA[screen]
+    text = Theme.USET_CHOICE.format(title=title, name=_user_link(user), current=cur, info=info)
+    for label, data, active in opts:
+        b.ibutton(mark(active, label), data)
+    b.ibutton("◀️", _UBACK[screen], "footer")
+    b.ibutton("❌", "close_all", "footer")
+    return text, b.build_menu(3 if screen in ("shots", "br") else 2)
+
+
+_UALIAS = {"thumb": "pg_thumb", "caption": "pg_caption", "name": "leech"}
+
+
+def _uset_home(uid, user, config, b):
+    text = Theme.USET_HOME.format(name=_user_link(user), id=user.id)
+    b.ibutton(Theme.USET_MENU_BTNS["universal"], "us_universal")
+    b.ibutton(Theme.USET_MENU_BTNS["leech"], "us_leech")
+    defaults = DEFAULT_USER(uid)
+    if any(config.get(k, defaults[k]) != defaults[k] for k in USET_RESET_KEYS):
+        b.ibutton(Theme.USET_MENU_BTNS["reset"], "us_reset")
+    b.ibutton("◀️", "ui_home", "footer")
+    b.ibutton("❌", "close_all", "footer")
+    return text, b.build_menu(1)
+
+
+def _uset_universal(uid, user, config, b):
+    fmt, br = config.get("audio_fmt", "mp3"), config.get("audio_br", "192k")
+    pl, pk = config.get("poster_lang", "all"), config.get("poster_kind", "p")
+    plan = check_premium(uid)
+    text = Theme.USET_UNIVERSAL.format(
+        name=_user_link(user), used=_used_today(config)[0], plan=Theme.PLAN_NAMES.get(plan, plan),
+        fmt=Theme.AUDIO_FORMATS.get(fmt, ("MP3",))[0], br="Lossless" if fmt == "flac" else br,
+        mediainfo="Enabled" if config.get("mediainfo") else "Disabled",
+        lang=Theme.POSTER_LANG_OPTS.get(pl, pl.upper()), kind=Theme.POSTER_KINDS_PL[pk])
+    b.ibutton(mark(config.get("mediainfo"), "MediaInfo"), "tg_mediainfo")
+    b.ibutton("Audio Format", "us_fmt")
+    if fmt != "flac":
+        b.ibutton("Audio Quality", "us_br")
+    b.ibutton("Poster Language", "us_plang")
+    b.ibutton("Poster Type", "us_pkind")
+    b.ibutton("◀️", "us_home", "footer")
+    b.ibutton("❌", "close_all", "footer")
+    return text, b.build_menu(2)
+
+
+def _uset_leech(uid, user, config, b):
+    mode = config.get("mode", "ask")
+    fmt, br = config.get("audio_fmt", "mp3"), config.get("audio_br", "192k")
+    pl, pk = config.get("poster_lang", "all"), config.get("poster_kind", "p")
+    n = int(config.get("screenshots", 0) or 0)
+    cap_custom = _uset_is_set("caption", config)
+    cf = config.get("cap_font") or ""
+    vals = {k: esc(short(config.get(k) or "", 40)) or Theme.NOT_SET for k in ("prefix", "suffix", "remname")}
+    text = Theme.USET_MAIN.format(
+        name=_user_link(user), id=user.id, plan=Theme.PLAN_NAMES.get(check_premium(uid), "Free"),
+        mode=Theme.MODE_NAMES.get(mode, "Ask"), rename="Enabled" if rename_on(config) else "Disabled",
+        thumb="Exists" if config.get("thumb") else Theme.NOT_SET,
+        auto_thumb="Enabled" if config.get("auto_thumb") else "Disabled",
+        caption="Custom" if cap_custom else "Default",
+        screenshots="Disabled" if n <= 0 else f"{n} per video",
+        remname_auto=esc(short(config.get("remname_auto") or "", 40)) or Theme.NOT_SET,
+        method="Regex" if config.get("rename_method") == "regex" else "Auto Rename",
+        autorename="Enabled" if config.get("autorename") else "Disabled",
+        spoiler="Enabled" if config.get("spoiler") else "Disabled", cap_font=Theme.CAP_FONTS.get(cf, "Regular"),
+        fmt=Theme.AUDIO_FORMATS.get(fmt, ("MP3",))[0], br="Lossless" if fmt == "flac" else br,
+        lang=Theme.POSTER_LANG_OPTS.get(pl, pl.upper()), kind=Theme.POSTER_KINDS_PL[pk], **vals)
+    b.ibutton("Upload Type", "us_mode")
+    b.ibutton(mark(config.get("thumb"), "Thumbnail"), "us_pg_thumb")
+    b.ibutton(mark(cap_custom, "Caption"), "us_pg_caption")
+    b.ibutton(mark(config.get("prefix"), "Prefix"), "us_pg_prefix")
+    b.ibutton(mark(config.get("suffix"), "Suffix"), "us_pg_suffix")
+    b.ibutton(mark(config.get("remname"), "Regex Remname"), "us_pg_remname")
+    b.ibutton(mark(config.get("remname_auto"), "AutoRename Template"), "us_pg_remname_auto")
+    b.ibutton(mark(config.get("autorename"), "AutoRename"), "tg_autorename")
+    b.ibutton("Rename Method: Regex" if config.get("rename_method") == "regex" else "Rename Method: Auto", "tg_method")
+    b.ibutton(mark(rename_on(config), "Rename Prompt"), "tg_rename")
+    b.ibutton(mark(config.get("auto_thumb"), "Auto Thumbnail"), "tg_auto_thumb")
+    b.ibutton(mark(config.get("spoiler"), "Spoiler"), "tg_spoiler")
+    b.ibutton("Caption Font", "us_capfont")
+    b.ibutton(mark(n > 0, "Screenshots"), "us_shots")
+    b.ibutton("◀️", "us_home", "footer")
+    b.ibutton("❌", "close_all", "footer")
+    return text, b.build_menu(2)
+
+
+def _uset_page(uid, user, config, key, b):
+    isset = _uset_is_set(key, config)
+    if key == "thumb" and config.get("thumb"):
+        b.ibutton(Theme.USET_BTN["view"], "us_thumbview", "header")
+    b.ibutton(Theme.USET_BTN["change" if isset else "set"].format(n=Theme.USET_PAGES[key][0]), f"us_in_{key}")
+    if isset:
+        b.ibutton(Theme.USET_BTN["delete"], f"us_rm_{key}")
+    b.ibutton("◀️", "us_leech", "footer")
+    b.ibutton("❌", "close_all", "footer")
+    return _uset_page_text(key, config), b.build_menu(2)
+
+
 def uset_view(uid, user, config, screen="home"):
     """One renderer for every /settings screen -> (text, keyboard)."""
+    screen = _UALIAS.get(screen, screen)
     name = _user_link(user)
     b = ButtonMaker()
-    if screen in ("mode", "fmt", "br", "plang", "pkind"):
-        mode = config.get("mode", "ask")
-        fmt, br = config.get("audio_fmt", "mp3"), config.get("audio_br", "192k")
-        pl, pk = config.get("poster_lang", "all"), config.get("poster_kind", "p")
-        title, cur, opts = {
-            "mode": ("Upload Type", Theme.MODE_NAMES.get(mode, "Ask"),
-                     [(v, f"m_{k}", mode == k) for k, v in Theme.MODE_NAMES.items()]),
-            "fmt": ("Audio Format", Theme.AUDIO_FORMATS.get(fmt, ("MP3",))[0],
-                    [(v[0], f"af_{k}", fmt == k) for k, v in Theme.AUDIO_FORMATS.items()]),
-            "br": ("Audio Quality", "Lossless" if fmt == "flac" else br,
-                   [(r, f"ab_{r}", br == r) for r in Theme.AUDIO_BITRATES]),
-            "plang": ("Poster Language", Theme.POSTER_LANG_OPTS.get(pl, pl.upper()),
-                      [(v, f"pl_{k}", pl == k) for k, v in Theme.POSTER_LANG_OPTS.items()]),
-            "pkind": ("Poster Type", Theme.POSTER_KINDS_PL[pk],
-                      [(v, f"pk_{k}", pk == k) for k, v in Theme.POSTER_KINDS_PL.items()]),
-        }[screen]
-        text = Theme.USET_CHOICE.format(title=title, name=name, current=cur, info=Theme.USET_CHOICE_INFO[screen])
-        for label, data, active in opts:
-            b.ibutton(mark(active, label), data)
-        b.ibutton("◀️", "us_home", "footer")
-        b.ibutton("❌", "close_all", "footer")
-        return text, b.build_menu(2)
-    if screen not in ("quota", "reset"):
-        plan = check_premium(uid)
-        mode = config.get("mode", "ask")
-        fmt, br = config.get("audio_fmt", "mp3"), config.get("audio_br", "192k")
-        pl, pk = config.get("poster_lang", "all"), config.get("poster_kind", "p")
-        n = int(config.get("screenshots", 0) or 0)
-        cap_custom = (config.get("caption") or DEFAULT_CAPTION) != DEFAULT_CAPTION
-        vals = {k: esc(short(config.get(k) or "", 40)) or Theme.NOT_SET for k in ("prefix", "suffix", "remname")}
-        text = Theme.USET_MAIN.format(
-            name=name, id=user.id, plan=Theme.PLAN_NAMES.get(plan, plan), mode=Theme.MODE_NAMES.get(mode, "Ask"),
-            rename="Enabled" if rename_on(config) else "Disabled",
-            thumb="Exists" if config.get("thumb") else Theme.NOT_SET,
-            auto_thumb="Enabled" if config.get("auto_thumb") else "Disabled",
-            caption="Custom" if cap_custom else "Default", screenshots=n,
-            spoiler="Enabled" if config.get("spoiler") else "Disabled",
-            fmt=Theme.AUDIO_FORMATS.get(fmt, ("MP3",))[0], br="Lossless" if fmt == "flac" else br,
-            lang=Theme.POSTER_LANG_OPTS.get(pl, pl.upper()), kind=Theme.POSTER_KINDS_PL[pk], **vals)
-        b.ibutton("Upload Type", "us_mode")
-        b.ibutton(mark(rename_on(config), "Rename Prompt"), "tg_rename")
-        b.ibutton(mark(config.get("thumb"), "Thumbnail"), "us_in_thumb")
-        b.ibutton(mark(config.get("auto_thumb"), "Auto Thumbnail"), "tg_auto_thumb")
-        b.ibutton(mark(cap_custom, "Caption"), "us_in_caption")
-        b.ibutton(mark(config.get("spoiler"), "Spoiler"), "tg_spoiler")
-        for k in ("prefix", "suffix", "remname"):
-            b.ibutton(mark(bool(config.get(k)), Theme.USET_LABELS[k]), f"us_in_{k}")
-        b.ibutton(mark(n > 0, "Screenshots"), "us_in_screenshots")
-        b.ibutton("Audio Format", "us_fmt")
-        if fmt != "flac":
-            b.ibutton("Audio Quality", "us_br")
-        b.ibutton("Poster Language", "us_plang")
-        b.ibutton("Poster Type", "us_pkind")
-        defaults = DEFAULT_USER(uid)
-        if any(config.get(k, defaults[k]) != defaults[k] for k in USET_RESET_KEYS):
-            b.ibutton(Theme.USET_HOME_BTNS["reset"], "us_reset")
-        b.ibutton("◀️", "ui_home", "footer")
-        b.ibutton("❌", "close_all", "footer")
-        return text, b.build_menu(2)
+    if screen in ("mode", "fmt", "br", "plang", "pkind", "capfont", "shots"):
+        return _uset_choice(uid, user, config, screen)
+    if screen == "home":
+        return _uset_home(uid, user, config, b)
+    if screen == "universal":
+        return _uset_universal(uid, user, config, b)
+    if screen == "leech":
+        return _uset_leech(uid, user, config, b)
+    if screen.startswith("pg_"):
+        return _uset_page(uid, user, config, screen[3:], b)
     if screen == "quota":
         plan = check_premium(uid)
         limits = get_premium_limits(uid)
@@ -1325,19 +1570,14 @@ def uset_view(uid, user, config, screen="home"):
 
 
 def uset_prompt_view(key, config, error=None):
-    cur = str(config.get(key) or "")
-    if key == "thumb":
-        cur = "Exists" if cur else ""
-    text = Theme.USET_PROMPT.format(label=Theme.USET_LABELS[key], current=esc(short(cur, 300)) or Theme.NOT_SET,
-                                    example=esc(Theme.USET_EXAMPLES[key]), hint=Theme.USET_HINTS[key])
+    text = Theme.USET_ASK.format(page=_uset_page_text(key, config), ask=Theme.USET_PAGES[key][3])
     if error:
         text = Theme.USET_INVALID.format(err=esc(error)) + "\n\n" + text
     b = ButtonMaker()
-    if key == "thumb" and config.get("thumb"):
-        b.ibutton("View Thumbnail", "us_thumbview")
-    if config.get(key) and (key != "caption" or config.get(key) != DEFAULT_CAPTION):
-        b.ibutton("Delete" if key != "caption" else "Reset Caption", f"us_rm_{key}")
-    b.ibutton("◀️", f"us_{USET_INPUT_PARENT[key]}", "footer")
+    b.ibutton(Theme.USET_BTN["stop"], "us_shots" if key == "screenshots" else f"us_pg_{key}")
+    if _uset_is_set(key, config):
+        b.ibutton(Theme.USET_BTN["delete"], f"us_rm_{key}")
+    b.ibutton("◀️", "us_leech", "footer")
     b.ibutton("❌", "close_all", "footer")
     return text, b.build_menu(2)
 
@@ -1375,15 +1615,11 @@ async def apply_userbot(session):
 
 
 def bset_home_view():
-    q = " / ".join(str(cfg(k)) for k in ("FREE_DAILY_LIMIT", "TEST_DAILY_LIMIT", "GOLD_DAILY_LIMIT", "ULTRA_DAILY_LIMIT"))
-    c = " / ".join(str(cfg(k)) for k in ("MAX_CONCURRENT_FREE", "MAX_CONCURRENT_TEST", "MAX_CONCURRENT_GOLD", "MAX_CONCURRENT_ULTRA"))
-    size = f"{human_size(cfg('MAX_FILE_SIZE_NORMAL'))} / {human_size(cfg('MAX_FILE_SIZE_PREMIUM'))}" + ("" if has_userbot() else " (no userbot)")
-    text = Theme.BSET_HOME.format(q=q, c=c, cooldown=fmt_config_value("COOLDOWN_NORMAL"), size=size,
-                                  userbot=(userbot_info or "Active") if premium_client else "Off",
-                                  maint="Enabled" if cfg("MAINTENANCE") else "Disabled")
+    text = Theme.BSET_HOME
     b = ButtonMaker()
     b.ibutton(Theme.BSET_BTNS["vars"], "bs_vars")
-    b.ibutton(mark(cfg("MAINTENANCE"), "Maintenance"), "bs_tg_MAINTENANCE")
+    b.ibutton(Theme.BSET_BTNS["session"], "bs_g_session")
+    b.ibutton(Theme.BSET_BTNS["short"], "bs_g_short")
     if BOT_CONFIG:
         b.ibutton(Theme.BSET_BTNS["reset_all"], "bs_reset")
     b.ibutton("◀️", "adm_home", "footer")
@@ -1433,7 +1669,7 @@ def bset_prompt_view(key, error=None):
     return text, b.build_menu(2)
 
 
-BSET_GROUP_ORDER = ["quota", "conc", "limits", "price", "brand", "sys", "maint"]
+BSET_GROUP_ORDER = ["quota", "conc", "limits", "price", "brand", "session", "short", "sys"]
 BSET_GROUPED = {g: [k for k, (_, grp) in BOT_CONFIG_SPEC.items() if grp == g] for g in BSET_GROUP_ORDER}
 
 
@@ -1466,7 +1702,6 @@ def admin_panel_view():
     b.ibutton(A["bset"], "bs_home")
     b.ibutton(A["stats"], "stats_bot")
     b.ibutton("Logs", "log_refresh")
-    b.ibutton(mark(cfg("MAINTENANCE"), A["maint"]), "bs_tg_MAINTENANCE_A")
     b.ibutton("◀️", "ui_home", "footer")
     b.ibutton("❌", "close_all", "footer")
     return text, b.build_menu(2)
@@ -1480,7 +1715,7 @@ def _stats_page(page):
         except Exception:
             dr = dw = "N/A"
         return Theme.STATS_BOT.format(
-            bot_uptime=time_formatter(get_bot_uptime()),
+            bot_uptime=time_formatter(get_bot_uptime()), app_ram=f"{psutil.Process().memory_info().rss / 1048576:.1f} MB",
             ram_bar=theme_bar(ram.percent), ram=ram.percent, ram_u=human_size(ram.used), ram_f=human_size(ram.available), ram_t=human_size(ram.total),
             swap_bar=theme_bar(swap.percent), swap=swap.percent, swap_u=human_size(swap.used), swap_f=human_size(swap.free), swap_t=human_size(swap.total),
             disk_bar=theme_bar(disk.percent), disk=disk.percent, disk_read=dr, disk_write=dw,
@@ -1500,7 +1735,7 @@ def _stats_page(page):
             tl_data=human_size(net.bytes_sent + net.bytes_recv), cpu_bar=theme_bar(cpu), cpu=cpu,
             cpu_freq=f"{freq.current / 1000:.2f} GHz" if freq else "N/A", sys_load=load,
             p_core=psutil.cpu_count(logical=False) or "N/A", v_core=psutil.cpu_count(logical=True) or "N/A",
-            total_core=psutil.cpu_count() or "N/A")
+            total_core=psutil.cpu_count() or "N/A", usable_cpu=len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (psutil.cpu_count() or "N/A"))
     if page == "lim":
         return Theme.STATS_LIMITS.format(
             q_free=cfg("FREE_DAILY_LIMIT"), q_test=cfg("TEST_DAILY_LIMIT"), q_gold=cfg("GOLD_DAILY_LIMIT"), q_ultra=cfg("ULTRA_DAILY_LIMIT"),
@@ -1542,7 +1777,8 @@ def plan_text(plan, extra=""):
                 "ultra": f"• <b>Duration:</b> {cfg('PREMIUM_DAYS')} days\n"}.get(plan, "")
     return Theme.PLAN.format(title=Theme.PLAN_TITLES[plan], price=price, duration=duration,
                              daily=lim["daily_limit"], size=human_size(lim["max_file_size"]), conc=lim["concurrent"],
-                             cooldown=f"{lim['cooldown']} seconds" if lim["cooldown"] else "None", extra=extra)
+                             cooldown=f"{lim['cooldown']} seconds" if lim["cooldown"] else "None", extra=extra,
+                             speed="High speed (multi-connection Premium)" if lim["use_dump"] else "Standard")
 
 async def _edit(query, text, kb, toast=None):
     try:
@@ -1617,13 +1853,29 @@ async def settings_command(client, message):
     uid = str(message.from_user.id)
     temp_context.pop(f"input_{uid}", None)
     text, kb = uset_view(uid, message.from_user, get_user_config(uid), "home")
-    await message.reply_text(text, reply_markup=kb, reply_parameters=ReplyParameters(message_id=message.id), link_preview_options=LinkPreviewOptions(is_disabled=True))
+    await message.reply_text(text, reply_markup=kb, link_preview_options=LinkPreviewOptions(is_disabled=True))
+
+@bot.on_message(filters.command(["maintenance", "maint"]) & filters.user(ADMIN_ID))
+async def maintenance_command(client, message):
+    """/maintenance on [message] | off | (no args = status)"""
+    args = message.command[1:]
+    if args and args[0].lower() in ("on", "off"):
+        on = args[0].lower() == "on"
+        set_config("MAINTENANCE", on)
+        if on and len(args) > 1:
+            set_config("MAINTENANCE_MSG", message.text.split(None, 2)[2])
+        elif not on:
+            set_config("MAINTENANCE_MSG", "")
+    note = cfg("MAINTENANCE_MSG")
+    await message.reply_text(f"<b>Maintenance:</b> {'Enabled' if cfg('MAINTENANCE') else 'Disabled'}"
+                             + (f"\n<code>{esc(note)}</code>" if note else "")
+                             + "\n\n<code>/maintenance on [message]</code> · <code>/maintenance off</code>")
 
 @bot.on_message(filters.command(["bsetting", "bsettings", "bs"]) & filters.user(ADMIN_ID))
 async def bsetting_command(client, message):
     temp_context.pop(f"input_{message.from_user.id}", None)
     text, kb = bset_home_view()
-    await message.reply_text(text, reply_markup=kb, reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text(text, reply_markup=kb)
 
 @bot.on_message(filters.private & filters.text & filters.create(
     lambda _, __, m: bool(m.from_user and temp_context.get(f"input_{m.from_user.id}"))), group=-1)
@@ -1680,7 +1932,7 @@ async def settings_input(client, message):
 async def maintenance_message_gate(client, message):
     if message.chat and message.chat.type == enums.ChatType.PRIVATE:
         try:
-            await message.reply_text(maintenance_text(), reply_parameters=ReplyParameters(message_id=message.id))
+            await message.reply_text(maintenance_text())
         except Exception:
             pass
     raise StopPropagation
@@ -1702,7 +1954,7 @@ async def show_help_menu(client, message_or_query, user_id):
     b.ibutton("❌", "close_all", "footer")
     kb = b.build_menu(2)
     if isinstance(message_or_query, Message):
-        await message_or_query.reply_text(Theme.HELP_HEADER, reply_markup=kb, reply_parameters=ReplyParameters(message_id=message_or_query.id))
+        await message_or_query.reply_text(Theme.HELP_HEADER, reply_markup=kb)
     else:
         await message_or_query.message.edit_text(Theme.HELP_HEADER, reply_markup=kb)
 
@@ -1746,12 +1998,14 @@ async def status_command(client, message):
     nav_row = []
     if total_pages > 1:
         nav_row.append(InlineKeyboardButton("⫷", callback_data=f"page_{uid}_{(current_page - 1) % total_pages}", style=enums.ButtonStyle.PRIMARY))
-        nav_row.append(InlineKeyboardButton(f"{current_page + 1}/{total_pages}", callback_data=f"refresh_{uid}", style=enums.ButtonStyle.PRIMARY))
+        nav_row.append(InlineKeyboardButton(f"⌬ ᴘᴀɢᴇs {current_page + 1}/{total_pages}", callback_data=f"refresh_{uid}", style=enums.ButtonStyle.PRIMARY))
         nav_row.append(InlineKeyboardButton("⫸", callback_data=f"page_{uid}_{(current_page + 1) % total_pages}", style=enums.ButtonStyle.PRIMARY))
     else:
-        nav_row.append(InlineKeyboardButton("♻️", callback_data=f"refresh_{uid}", style=enums.ButtonStyle.PRIMARY))
+        nav_row.append(InlineKeyboardButton("⟳ ʀᴇꜰʀᴇsʜ", callback_data=f"refresh_{uid}", style=enums.ButtonStyle.PRIMARY))
     
     buttons = []
+    if cfg("RICH_MESSAGES"):
+        nav_buttons = []
     
     if nav_buttons:
         for i in range(0, len(nav_buttons), 5):
@@ -1759,8 +2013,48 @@ async def status_command(client, message):
     
     buttons.append(nav_row)
     
-    new_status = await client.send_message(message.chat.id, combined, reply_markup=InlineKeyboardMarkup(buttons))
+    new_status = None
+    if cfg("RICH_MESSAGES"):
+        try:
+            new_status = await client.send_rich_message(message.chat.id, InputRichMessage(html=rich_status_html(combined)), reply_markup=InlineKeyboardMarkup(buttons))
+            new_status._rich = True
+        except Exception as e:
+            logger.warning(f"rich status failed, plain text: {e}")
+    if new_status is None:
+        new_status = await client.send_message(message.chat.id, combined, reply_markup=InlineKeyboardMarkup(buttons))
     user_status_msg[uid] = new_status
+
+cancel_pending = {}
+
+async def ask_cancel(client, query, task):
+    """Turn the status message itself into a Yes/No question (an edit, no new message); back to the status after 30s."""
+    uid = task.user_id
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✓ Yes, Cancel", callback_data=f"cxyes_{task.gid}", style=enums.ButtonStyle.DANGER),
+        InlineKeyboardButton("✘ No", callback_data=f"cxno_{task.gid}", style=enums.ButtonStyle.PRIMARY),
+    ]])
+    until = time.time() + 30
+    cancel_pending[uid] = until
+    name = esc(task.filename)
+    try:
+        await query.message.edit_text(rich_message=InputRichMessage(html=f"<b>Cancel this task?</b><br><code>{name}</code>"), reply_markup=kb)
+    except Exception:
+        await query.message.edit_text(f"<b>Cancel this task?</b>\n<code>{name}</code>", reply_markup=kb)
+    await query.answer()
+    async def _expire():
+        await asyncio.sleep(30)
+        if cancel_pending.get(uid) == until:
+            cancel_pending.pop(uid, None)
+            await update_user_status(uid)
+    asyncio.create_task(_expire())
+
+async def find_task_by_gid(gid):
+    async with tasks_lock:
+        for task in tasks.values():
+            if task.gid == gid and not task.cancelled:
+                return task
+    return None
+
 
 async def cancel_task_by_position(user_id, position):
     found_task = None
@@ -1801,11 +2095,33 @@ async def cancel_task_by_position(user_id, position):
     
     return True, filename
 
-@bot.on_message(filters.command(["cancel", "cn"]))
+@bot.on_message(filters.command(["cancel", "cn"]) | filters.regex(r"^/cancel_[a-z0-9]{8}(@\w+)?$"))
 async def cancel_command(client, message):
     parts = message.text.split()
+    gm = re.match(r"^/cancel_([a-z0-9]{8})(?:@\w+)?$", parts[0]) if parts else None
+    gid = gm.group(1) if gm else (parts[1].strip().lower() if len(parts) == 2 and re.fullmatch(r"[a-z0-9]{8}", parts[1].strip().lower()) and not parts[1].strip().isdigit() else None)
+    if gid:
+        task = await find_task_by_gid(gid)
+        if not task or (task.user_id != message.from_user.id and message.from_user.id != ADMIN_ID):
+            msg = await message.reply_text("❌ Task not found")
+            await asyncio.sleep(3)
+            for x in (message, msg):
+                try:
+                    await x.delete()
+                except Exception:
+                    pass
+            return
+        task_pos = task.position or 1
+        ok, filename = await cancel_task_by_position(task.user_id, task_pos)
+        if ok:
+            await update_user_status(task.user_id)
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        return
     if len(parts) != 2:
-        msg = await message.reply_text("Usage: <code>/cancel 1</code> (where 1 is the task number)")
+        msg = await message.reply_text("Usage: <code>/cancel_xxxxxxxx</code> (the id shown under your task)")
         await asyncio.sleep(3)
         await message.delete()
         await msg.delete()
@@ -1893,14 +2209,47 @@ async def callback_manager(client, query: CallbackQuery):
                 if query.from_user.id != target_uid and query.from_user.id != ADMIN_ID:
                     await query.answer("Not your task!", show_alert=True)
                     return
-                success, filename = await cancel_task_by_position(target_uid, position)
-                if success:
-                    await query.answer(f"Cancelled task #{position}", show_alert=True)
-                    await update_user_status(target_uid)
-                else:
+                t = next((x for x in (tasks.get(i) for i in user_tasks.get(target_uid, [])) if x and x.position == position and not x.cancelled), None)
+                if not t:
                     await query.answer("Task not found", show_alert=True)
+                    return
+                await ask_cancel(client, query, t)
             return
-        
+
+        elif data == "fsub_chk":
+            if await fsub_missing(query.from_user.id):
+                await query.answer("You still haven't joined", show_alert=True)
+            else:
+                await query.answer("All set!")
+                await query.message.edit_text("<b>✓ All set!</b> Send the file again.")
+            return
+
+        elif data.startswith("cxask_"):
+            t = await find_task_by_gid(data[6:])
+            if not t:
+                await query.answer("Task not found", show_alert=True)
+            elif query.from_user.id not in (t.user_id, ADMIN_ID):
+                await query.answer("That's not yours", show_alert=True)
+            else:
+                await ask_cancel(client, query, t)
+            return
+
+        elif data.startswith(("cxyes_", "cxno_")):
+            act, gid = data.split("_", 1)
+            t = await find_task_by_gid(gid)
+            if t and query.from_user.id not in (t.user_id, ADMIN_ID):
+                await query.answer("That's not yours", show_alert=True)
+                return
+            uid_t = t.user_id if t else query.from_user.id
+            cancel_pending.pop(uid_t, None)
+            if act == "cxyes" and t:
+                ok, _fn = await cancel_task_by_position(t.user_id, t.position or 1)
+                await query.answer("Task cancelled" if ok else "Task not found")
+            else:
+                await query.answer()
+            await update_user_status(uid_t)
+            return
+
         elif data.startswith("page_"):
             parts = data.split("_")
             if len(parts) >= 3:
@@ -1998,32 +2347,39 @@ async def callback_manager(client, query: CallbackQuery):
             temp_context.pop(f"input_{uid}", None)
             await _edit(query, *uset_view(uid, query.from_user, config, USET_ROUTES[data]))
 
-        elif data in ("tg_spoiler", "tg_auto_thumb", "tg_rename"):
+        elif data in ("tg_spoiler", "tg_auto_thumb", "tg_rename", "tg_mediainfo", "tg_autorename", "tg_method"):
+            if data == "tg_method":
+                config["rename_method"] = "regex" if config.get("rename_method", "auto") == "auto" else "auto"
+                _run(_save_user(uid))
+                await _edit(query, *uset_view(uid, query.from_user, config, "leech"), toast=f"Method: {config['rename_method'].title()}")
+                return
             if data == "tg_rename":
                 config["rename"] = "no" if rename_on(config) else "ask"
-                on, screen, label = rename_on(config), "home", "Rename Prompt"
+                on, screen, label = rename_on(config), "leech", "Rename Prompt"
             else:
                 key = data[3:]
                 config[key] = not config.get(key, False)
-                on, screen = config[key], "home"
-                label = "Spoiler" if key == "spoiler" else "Auto Thumbnail"
+                on, screen = config[key], ("universal" if key == "mediainfo" else "leech")
+                label = {"spoiler": "Spoiler", "mediainfo": "MediaInfo", "autorename": "AutoRename"}.get(key, "Auto Thumbnail")
             _run(_save_user(uid))
             await _edit(query, *uset_view(uid, query.from_user, config, screen),
                         toast=f"{label} {'Enabled' if on else 'Disabled'}")
             return
 
-        elif data.startswith(("m_", "ss_", "af_", "ab_", "pl_", "pk_")) and data.split("_", 1)[1]:
+        elif data.startswith(("m_", "ss_", "af_", "ab_", "pl_", "pk_", "cf_")) and data.split("_", 1)[1]:
             prefix, val = data.split("_", 1)
             if prefix == "m" and val in Theme.MODE_NAMES:
                 config["mode"] = val; screen = "mode"
             elif prefix == "ss" and val.isdigit() and 0 <= int(val) <= 10:
-                config["screenshots"] = int(val); screen = "home"
+                config["screenshots"] = int(val); screen = "shots"
             elif prefix == "af" and val in Theme.AUDIO_FORMATS:
                 config["audio_fmt"] = val; screen = "fmt"
             elif prefix == "ab" and val in Theme.AUDIO_BITRATES:
                 config["audio_br"] = val; screen = "br"
             elif prefix == "pl" and val in Theme.POSTER_LANG_OPTS:
                 config["poster_lang"] = val; screen = "plang"
+            elif prefix == "cf" and (val == "none" or val in Theme.CAP_FONTS):
+                config["cap_font"] = "" if val == "none" else val; screen = "capfont"
             elif prefix == "pk" and val in ("p", "b"):
                 config["poster_kind"] = val; screen = "pkind"
             else:
@@ -2352,12 +2708,12 @@ async def redeem_stats_command(client, message):
                 plan = data["plan"].upper()
                 text += f"• <code>{code}</code> ({plan} - {days} days)\n"
                 count += 1
-    await message.reply_text(text, reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text(text)
 
 @bot.on_pre_checkout_query()
 async def pre_checkout_handler(client, pre_checkout_query: PreCheckoutQuery):
     try:
-        await pre_checkout_query.answer(success=True)
+        await pre_checkout_query.answer(ok=True)
     except Exception as e:
         logger.error(f"Error answering pre_checkout_query: {e}")
 
@@ -2420,7 +2776,7 @@ async def successful_payment_handler(client, message):
 async def admin_panel(client, message):
     temp_context.pop(f"input_{message.from_user.id}", None)
     text, kb = admin_panel_view()
-    await message.reply_text(text, reply_markup=kb, reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text(text, reply_markup=kb)
 
 @bot.on_message(filters.command("add_plan") & filters.user(ADMIN_ID))
 async def add_plan_cmd(client, message):
@@ -2429,16 +2785,15 @@ async def add_plan_cmd(client, message):
         return await message.reply_text(
             "Usage: <code>/add_plan [user_id] [test/gold/ultra] [duration]</code>\n"
             "Duration: 1d, 2w, 3m, 1y\n"
-            "Example: <code>/add_plan 123456 gold 1m</code>",
-            reply_parameters=ReplyParameters(message_id=message.id)
+            "Example: <code>/add_plan 123456 gold 1m</code>"
         )
     user_id = args[1]
     plan = args[2].lower()
     duration = args[3]
     if plan not in ["test", "gold", "ultra"]:
-        return await message.reply_text("❌ Plan must be test, gold, or ultra", reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("❌ Plan must be test, gold, or ultra")
     if not add_premium(user_id, plan, duration):
-        return await message.reply_text("❌ Invalid duration format!", reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("❌ Invalid duration format!")
     if plan == "test":
         mark_test_bought(user_id)
     config = get_user_config(user_id)
@@ -2446,8 +2801,7 @@ async def add_plan_cmd(client, message):
     await message.reply_text(
         f"✅ <b>Plan added to user <code>{user_id}</code></b>\n"
         f"Plan: {plan.upper()}\n"
-        f"Expires: {expires.strftime('%Y-%m-%d %H:%M')}",
-        reply_parameters=ReplyParameters(message_id=message.id)
+        f"Expires: {expires.strftime('%Y-%m-%d %H:%M')}"
     )
     try:
         await client.send_message(
@@ -2463,15 +2817,15 @@ async def add_plan_cmd(client, message):
 @bot.on_message(filters.command("remove_plan") & filters.user(ADMIN_ID))
 async def remove_plan_cmd(client, message):
     if len(message.command) < 2:
-        return await message.reply_text("Usage: <code>/remove_plan [user_id]</code>", reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("Usage: <code>/remove_plan [user_id]</code>")
     user_id = message.command[1]
     config = get_user_config(user_id)
     if config["premium"]["type"] == "free":
-        return await message.reply_text("❌ User has no active plan.", reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("❌ User has no active plan.")
     old_plan = config["premium"]["type"]
     config["premium"] = {"type": "free", "expires": None, "daily_conversions": 0, "daily_failed": 0, "last_reset": str(datetime.now().date())}
     _run(_save_user(user_id))
-    await message.reply_text(f"✅ Removed {old_plan.upper()} plan from user {user_id}", reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text(f"✅ Removed {old_plan.upper()} plan from user {user_id}")
 
 @bot.on_message(filters.command("plan_list") & filters.user(ADMIN_ID))
 async def plan_list_cmd(client, message):
@@ -2507,12 +2861,12 @@ async def plan_list_cmd(client, message):
         text += f"• <code>{uid}</code> (expires: {remaining})\n"
     if len(test_users) > 20 or len(gold_users) > 20 or len(ultra_users) > 20:
         text += "\n... and more"
-    await message.reply_text(text, reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text(text)
 
 @bot.on_message(filters.command(["broadcast", "bc"]) & filters.user(ADMIN_ID))
 async def broadcast_cmd(client, message):
     if not message.reply_to_message:
-        return await message.reply_text("Reply to a message to broadcast.", reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("Reply to a message to broadcast.")
     is_forward = "-f" in message.text
     mode_label = "📨 Forward" if is_forward else "📋 Copy"
     total_users = len(db.users)
@@ -2526,8 +2880,7 @@ async def broadcast_cmd(client, message):
         f"👥 <b>Users:</b> 0 / {total_users}\n"
         f"✅ <b>Success:</b> 0\n"
         f"❌ <b>Failed:</b> 0"
-        f"</blockquote>",
-        reply_parameters=ReplyParameters(message_id=message.id)
+        f"</blockquote>"
     )
 
     for user_id in db.users:
@@ -2586,41 +2939,40 @@ async def restart_bot(client, message):
         b = ButtonMaker()
         b.ibutton(Theme.RESTART_BTNS["yes"], "rs_yes", style=enums.ButtonStyle.DANGER)
         b.ibutton(Theme.RESTART_BTNS["no"], "rs_no")
-        return await message.reply_text(Theme.RESTART_CONFIRM, reply_markup=b.build_menu(2),
-                                        reply_parameters=ReplyParameters(message_id=message.id))
-    m = await message.reply_text(Theme.RESTARTING, reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text(Theme.RESTART_CONFIRM, reply_markup=b.build_menu(2))
+    m = await message.reply_text(Theme.RESTARTING)
     await _do_restart(m)
 
 @bot.on_message(filters.command("ban") & filters.user(ADMIN_ID))
 async def ban_user_cmd(client, message):
     if len(message.command) < 2:
-        return await message.reply_text("Usage: <code>/ban [id]</code>", reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("Usage: <code>/ban [id]</code>")
     target = message.command[1]
     if target not in db.banned:
         db.banned.append(target)
         _run(_save_banned(target))
-        await message.reply_text(f"🚫 User <code>{target}</code> banned.", reply_parameters=ReplyParameters(message_id=message.id))
+        await message.reply_text(f"🚫 User <code>{target}</code> banned.")
     else:
-        await message.reply_text("User already banned.", reply_parameters=ReplyParameters(message_id=message.id))
+        await message.reply_text("User already banned.")
 
 @bot.on_message(filters.command("unban") & filters.user(ADMIN_ID))
 async def unban_user_cmd(client, message):
     if len(message.command) < 2:
-        return await message.reply_text("Usage: <code>/unban [id]</code>", reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("Usage: <code>/unban [id]</code>")
     target = message.command[1]
     if target in db.banned:
         db.banned.remove(target)
         _run(_delete_banned(target))
-        await message.reply_text(f"✅ User <code>{target}</code> unbanned.", reply_parameters=ReplyParameters(message_id=message.id))
+        await message.reply_text(f"✅ User <code>{target}</code> unbanned.")
     else:
-        await message.reply_text("User not banned.", reply_parameters=ReplyParameters(message_id=message.id))
+        await message.reply_text("User not banned.")
 
 @bot.on_message(filters.command("users") & filters.user(ADMIN_ID))
 async def users_list(client, message):
     users = list(db.users.keys())
     total = len(users)
     if total == 0:
-        return await message.reply_text("<b>👥 No users yet.</b>", reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("<b>👥 No users yet.</b>")
     
     text = f"<b>👥 Total users: {total}</b>\n\n"
     
@@ -2635,7 +2987,7 @@ async def users_list(client, message):
     
     text += "<blockquote expandable>\n" + "\n".join(list_lines) + "\n</blockquote>"
     
-    await message.reply_text(text, reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text(text)
 
 
 @bot.on_message(filters.command("allban") & filters.user(ADMIN_ID))
@@ -2643,7 +2995,7 @@ async def allban_list(client, message):
     banned = db.banned
     total = len(banned)
     if total == 0:
-        return await message.reply_text("<b>🔨 No banned users.</b>", reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("<b>🔨 No banned users.</b>")
     
     text = f"<b>🔨 Total banned users: {total}</b>\n\n"
     
@@ -2658,7 +3010,7 @@ async def allban_list(client, message):
     
     text += "<blockquote expandable>\n" + "\n".join(list_lines) + "\n</blockquote>"
     
-    await message.reply_text(text, reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text(text)
 
 @bot.on_message(filters.command(["set_caption", "set_cap"]))
 async def set_cap_p(client, message):
@@ -2678,11 +3030,11 @@ async def set_cap_p(client, message):
             "Use <code>/see_caption</code> to view current caption\n"
             "Use <code>/del_caption</code> to reset to default"
         )
-        return await message.reply_text(help_text, reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text(help_text)
     uid = str(message.from_user.id)
     get_user_config(uid)["caption"] = message.text.split(None, 1)[1]
     _run(_save_user(uid))
-    await message.reply_text("✅ <b>Caption Updated!</b>", reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text("✅ <b>Caption Updated!</b>")
 
 @bot.on_message(filters.command(["see_caption", "view_cap", "view_caption"]))
 async def view_cap_p(client, message):
@@ -2692,46 +3044,52 @@ async def view_cap_p(client, message):
         f"<code>{cap}</code>\n\n"
         "Use <code>/set_cap</code> to change it"
     )
-    await message.reply_text(text, reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text(text)
 
 @bot.on_message(filters.command(["del_caption", "del_cap"]))
 async def del_cap_p(client, message):
     uid = str(message.from_user.id)
     get_user_config(uid)["caption"] = "<b><i>{filename}</i>\n\n<blockquote>Size: {filesize}</blockquote></b>"
     _run(_save_user(uid))
-    await message.reply_text("🗑 <b>Caption Reset to Default!</b>", reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text("🗑 <b>Caption Reset to Default!</b>")
 
 @bot.on_message(filters.photo | (filters.document & filters.create(lambda _, __, m: m.document and m.document.mime_type.startswith("image/"))))
 async def save_thumb_p(client, message):
     uid = str(message.from_user.id)
+    st = temp_context.get(f"input_{uid}")
+    if not st or st.get("key") != "thumb":
+        if message.document:
+            raise ContinuePropagation
+        return
     config = get_user_config(uid)
     config["thumb"] = (message.photo or message.document).file_id
     config["thumb_src"] = None
     _run(_save_user(uid))
-    st = temp_context.get(f"input_{uid}")
-    if st and st.get("key") == "thumb":
-        temp_context.pop(f"input_{uid}", None)
-        try:
-            await message.delete()
-        except Exception:
-            pass
-        text, kb = uset_view(uid, message.from_user, config, "thumb")
-        try:
-            await client.edit_message_text(st["chat"], st["mid"], f"<b>{Theme.USET_SAVED.format(label='Thumbnail')}</b>\n\n" + text,
-                                           reply_markup=kb, link_preview_options=LinkPreviewOptions(is_disabled=True))
-            return
-        except Exception:
-            pass
-    await message.reply_text(Theme.THUMB_SAVED, reply_parameters=ReplyParameters(message_id=message.id))
+    temp_context.pop(f"input_{uid}", None)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+    text, kb = uset_view(uid, message.from_user, config, "pg_thumb")
+    text = f"<b>{Theme.USET_SAVED.format(label='Thumbnail')}</b>\n\n" + text
+    try:
+        await client.edit_message_text(st["chat"], st["mid"], text, reply_markup=kb,
+                                       link_preview_options=LinkPreviewOptions(is_disabled=True))
+    except MessageNotModified:
+        pass
+    except Exception:
+        await client.send_message(message.chat.id, text, reply_markup=kb,
+                                  link_preview_options=LinkPreviewOptions(is_disabled=True))
+    raise StopPropagation
 
 @bot.on_message(filters.command(["viewthumb", "view_thumb"]))
 async def view_thumb_p(client, message):
     thumb = get_user_config(message.from_user.id)["thumb"]
     if thumb:
-        await message.reply_photo(thumb, caption=Theme.USET_THUMB_CAPTION, reply_parameters=ReplyParameters(message_id=message.id),
+        await message.reply_photo(thumb, caption=Theme.USET_THUMB_CAPTION, 
                                   reply_markup=close_kb())
     else:
-        await message.reply_text(Theme.NO_THUMB, reply_parameters=ReplyParameters(message_id=message.id))
+        await message.reply_text(Theme.NO_THUMB)
 
 @bot.on_message(filters.command(["delthumb", "del_thumb"]))
 async def del_thumb_p(client, message):
@@ -2739,12 +3097,12 @@ async def del_thumb_p(client, message):
     get_user_config(uid)["thumb"] = None
     get_user_config(uid)["thumb_src"] = None
     _run(_save_user(uid))
-    await message.reply_text(Theme.THUMB_DELETED, reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text(Theme.THUMB_DELETED)
 
 @bot.on_message(filters.command(["plans", "pl"]))
 async def plans_command(client, message):
     uid = str(message.from_user.id)
-    await message.reply_text(get_user_stats_text(uid), reply_markup=plans_kb(), reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text(get_user_stats_text(uid), reply_markup=plans_kb())
 
 MI_SECTIONS = {"General": "🗒", "Video": "🎞", "Audio": "🔊", "Text": "🔠", "Menu": "🗃"}
 
@@ -2767,6 +3125,13 @@ def _format_mediainfo(raw_out):
     return "\n\n".join(f"{h}\n<pre>{chr(10).join(b)}</pre>" for h, b in blocks)
 
 _TG_TOKEN_FILE = os.path.join(WORKSPACE, "telegraph_token.txt")
+_TG_AUTHOR = {}
+
+
+def _tg_author():
+    """Telegraph author = this bot (name + t.me link), filled in at startup."""
+    return _TG_AUTHOR.get("name") or "Rename Bot", _TG_AUTHOR.get("url") or dev_link()
+
 
 def _tg_api(method, payload):
     import json as _json
@@ -2785,7 +3150,8 @@ def _tg_token():
                 return t
     except OSError:
         pass
-    acc = _tg_api("createAccount", {"short_name": "MediaInfo", "author_name": cfg('DEVELOPER_USERNAME')})
+    an, au = _tg_author()
+    acc = _tg_api("createAccount", {"short_name": "MediaInfo", "author_name": an, "author_url": au})
     with open(_TG_TOKEN_FILE, "w") as f:
         f.write(acc["access_token"])
     os.chmod(_TG_TOKEN_FILE, 0o600)
@@ -2819,7 +3185,7 @@ async def _telegraph_mediainfo(name, raw_out):
     def _create():
         return _tg_api("createPage", {
             "access_token": _tg_token(), "title": "MediaInfo",
-            "author_name": cfg('DEVELOPER_USERNAME'), "author_url": dev_link(),
+            "author_name": _tg_author()[0], "author_url": _tg_author()[1],
             "content": _json.dumps(nodes, ensure_ascii=False), "return_content": "false",
         })
     page = await asyncio.to_thread(_create)
@@ -2836,7 +3202,7 @@ async def _fetch_head(url, dest, max_bytes=15 * 1024 * 1024):
 async def mediainfo_command(client, message):
     uid = str(message.from_user.id)
     if uid in db.banned:
-        return await message.reply_text("🚫 <b>You are banned from using this bot.</b>", reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("🚫 <b>You are banned from using this bot.</b>")
     r = message.reply_to_message
     link = None
     if len(message.command) > 1 and message.command[1].startswith(("http://", "https://")):
@@ -2847,9 +3213,9 @@ async def mediainfo_command(client, message):
     if r:
         media = next((m for m in (r.video, r.document, r.audio, r.voice, r.animation, r.video_note) if m), None)
     if not link and not media:
-        return await message.reply_text(Theme.MEDIAINFO_HELP, reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text(Theme.MEDIAINFO_HELP)
 
-    status = await message.reply_text("<i>🔎 Generating MediaInfo...</i>", reply_parameters=ReplyParameters(message_id=message.id))
+    status = await message.reply_text("<i>🔎 Generating MediaInfo...</i>")
     tmp_dir = os.path.join(DOWNLOAD_LOCATION, f"mi_{uid}_{int(time.time())}")
     os.makedirs(tmp_dir, exist_ok=True)
     try:
@@ -2891,7 +3257,7 @@ async def mediainfo_command(client, message):
             txt = os.path.join(tmp_dir, "mediainfo.txt")
             with open(txt, "w", encoding="utf-8") as f:
                 f.write(out.decode("utf-8", "ignore"))
-            await message.reply_document(txt, caption=title.strip(), file_name="mediainfo.txt", reply_parameters=ReplyParameters(message_id=message.id))
+            await message.reply_document(txt, caption=title.strip(), file_name="mediainfo.txt")
             await status.delete()
     except Exception as e:
         logger.error(f"mediainfo failed: {e}", exc_info=True)
@@ -2907,15 +3273,15 @@ async def cover_command(client, message):
     uid = str(message.from_user.id)
     config = get_user_config(uid)
     if uid in db.banned:
-        return await message.reply_text("🚫 <b>You are banned from using this bot.</b>", reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("🚫 <b>You are banned from using this bot.</b>")
     r = message.reply_to_message
     media = r.video if r else None
     if not media:
-        return await message.reply_text(Theme.COVER_HELP, reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text(Theme.COVER_HELP)
     if not config.get("thumb") and not (config.get("auto_thumb") and tmdb_mod.TMDB_KEY):
-        return await message.reply_text(Theme.COVER_NEED_THUMB, reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text(Theme.COVER_NEED_THUMB)
 
-    status = await message.reply_text("<i>🖼 Adding cover...</i>", reply_parameters=ReplyParameters(message_id=message.id))
+    status = await message.reply_text("<i>🖼 Adding cover...</i>")
     tmp_dir = os.path.join(DOWNLOAD_LOCATION, f"cover_{uid}_{int(time.time())}")
     os.makedirs(tmp_dir, exist_ok=True)
     try:
@@ -2928,7 +3294,7 @@ async def cover_command(client, message):
             return await status.edit_text(Theme.COVER_NOT_FOUND)
         fname = media.file_name or "video.mp4"
         try:
-            cap = render_caption(config["caption"], fname, media.file_size, media.duration or 0)
+            cap = apply_cap_font(render_caption(config["caption"], fname, media.file_size, media.duration or 0), config)
         except Exception:
             cap = f"<b>{fname}</b>"
         await client.send_video(
@@ -3244,17 +3610,17 @@ async def poster_callback(client, query, data):
 async def poster_command(client, message):
     uid = str(message.from_user.id)
     if uid in db.banned:
-        return await message.reply_text(Theme.BANNED, reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text(Theme.BANNED)
     query = " ".join(message.command[1:]).strip()
     r = message.reply_to_message
     if not query and r:
         m = r.video or r.document or r.audio
         query = (getattr(m, "file_name", None) or r.caption or r.text or "") if m or r.text else ""
     if not query:
-        return await message.reply_text(Theme.INFO_HELP, reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text(Theme.INFO_HELP)
     if not tmdb_mod.TMDB_KEY:
-        return await message.reply_text(Theme.POSTER_NO_KEY, reply_parameters=ReplyParameters(message_id=message.id))
-    status = await message.reply_text(Theme.POSTER_SEARCHING.format(query=esc(short(query, 80))), reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text(Theme.POSTER_NO_KEY)
+    status = await message.reply_text(Theme.POSTER_SEARCHING.format(query=esc(short(query, 80))))
     results = await tmdb_mod.search_titles(query)
     if results is None:
         return await status.edit_text(Theme.POSTER_SEARCH_FAIL)
@@ -3352,19 +3718,19 @@ def log_view():
 @bot.on_message(filters.command(["log", "logs"]) & filters.user(ADMIN_ID))
 async def log_command(client, message):
     text, kb = log_view()
-    await message.reply_text(text, reply_markup=kb, reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text(text, reply_markup=kb)
 
 
 @bot.on_message(filters.command("ping"))
 async def ping_command(client, message):
     t0 = time.time()
-    m = await message.reply_text(Theme.PING, reply_parameters=ReplyParameters(message_id=message.id))
+    m = await message.reply_text(Theme.PING)
     await m.edit_text(Theme.PING_VALUE.format(ms=f"{(time.time() - t0) * 1000:.0f}", uptime=time_formatter(get_bot_uptime())))
 
 @bot.on_message(filters.command(["stats", "st"]) & filters.user(ADMIN_ID))
 async def stats_command(client, message):
     text, kb = await stats_view("bot")
-    await message.reply_text(text, reply_markup=kb, reply_parameters=ReplyParameters(message_id=message.id))
+    await message.reply_text(text, reply_markup=kb)
 
 SPEED_HOST = "speed.cloudflare.com"
 _speed_lock = asyncio.Lock()
@@ -3408,8 +3774,8 @@ def speedtest_text(r):
 @bot.on_message(filters.command(["speedtest", "sp"]) & filters.user(ADMIN_ID))
 async def speedtest_command(client, message):
     if _speed_lock.locked():
-        return await message.reply_text("⏳ <i>A speedtest is already running.</i>", reply_parameters=ReplyParameters(message_id=message.id))
-    m = await message.reply_text(Theme.SPEED_START, reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("⏳ <i>A speedtest is already running.</i>")
+    m = await message.reply_text(Theme.SPEED_START)
     async with _speed_lock:
         try:
             r = await asyncio.wait_for(asyncio.to_thread(_run_speedtest), timeout=240)
@@ -3418,13 +3784,104 @@ async def speedtest_command(client, message):
             logger.error(f"speedtest failed: {e!r}")
             await m.edit_text(Theme.SPEED_FAIL.format(err=esc(str(e)[:200] or type(e).__name__)))
 
+def _shorten_sync(long_url):
+    dom, key = str(cfg("SHORTENER") or "").strip(), str(cfg("SHORTENER_API") or "").strip()
+    if not dom or not key:
+        return long_url
+    q = urllib.parse.quote(long_url, safe="")
+    if "{api}" in dom or "{url}" in dom:
+        api = dom.replace("{api}", key).replace("{url}", q)
+    else:
+        d = re.sub(r"^https?://", "", dom).rstrip("/")
+        api = f"https://{d}/api?api={key}&url={q}"
+    try:
+        req = urllib.request.Request(api, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read().decode("utf-8", "ignore"))
+        for k in ("shortenedUrl", "shorturl", "short", "link", "url"):
+            v = data.get(k)
+            if isinstance(v, str) and v.startswith("http"):
+                return v
+    except Exception as e:
+        logger.warning(f"shortener failed: {e}")
+    return long_url
+
+async def token_gate(message):
+    """Free users need a valid access token (opened through the shortener link). True = may continue."""
+    uid = message.from_user.id
+    if _is_admin(uid) or check_premium(uid) != "free" or not cfg("SHORTENER_ENABLED") or not cfg("SHORTENER"):
+        return True
+    config = get_user_config(uid)
+    tk = config.get("token") or {}
+    if tk.get("expires", 0) > time.time():
+        return True
+    val = uuid.uuid4().hex[:16]
+    config["token"] = {"value": val, "expires": 0}
+    _run(_save_user(uid))
+    me = await bot.get_me()
+    link = await asyncio.to_thread(_shorten_sync, f"https://t.me/{me.username}?start=token_{val}")
+    hours = max(1, int(cfg("TOKEN_TIMEOUT")) // 3600)
+    await message.reply_text(
+        f"<b>Access token needed</b>\nOpen the link, finish the short step and come back. The token lasts {hours}h.\n"
+        "Premium plans skip this step.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Get Token", url=link, style=enums.ButtonStyle.PRIMARY)]]))
+    return False
+
+_fsub_cache = {}
+
+async def fsub_missing(uid):
+    """Force-sub channels the user has not joined: [(title, link)]. Channels the bot can't check are skipped."""
+    out = []
+    for s in str(cfg("FSUB_IDS") or "").split():
+        try:
+            cid = int(s)
+        except ValueError:
+            continue
+        try:
+            await bot.get_chat_member(cid, uid)
+            continue
+        except Exception as e:
+            if "USER_NOT_PARTICIPANT" not in str(e).upper() and type(e).__name__ != "UserNotParticipant":
+                logger.warning(f"[FSUB] can't check {cid}: {e}")
+                continue
+        c = _fsub_cache.get(cid)
+        if not c or time.time() - c[2] > 3600:
+            try:
+                ch = await bot.get_chat(cid)
+                link = f"https://t.me/{ch.username}" if ch.username else (ch.invite_link or await bot.export_chat_invite_link(cid))
+                c = (ch.title or str(cid), link, time.time())
+            except Exception as e:
+                logger.warning(f"[FSUB] no link for {cid}: {e}")
+                c = (str(cid), None, time.time())
+            _fsub_cache[cid] = c
+        out.append((c[0], c[1]))
+    return out
+
+async def fsub_gate(message):
+    """True = the user may continue. Otherwise sends the join message and returns False."""
+    uid = message.from_user.id
+    if _is_admin(uid) or not str(cfg("FSUB_IDS") or "").strip():
+        return True
+    miss = await fsub_missing(uid)
+    if not miss:
+        return True
+    rows = [[InlineKeyboardButton(f"Join {ti}", url=li, style=enums.ButtonStyle.PRIMARY)] for ti, li in miss if li]
+    rows.append([InlineKeyboardButton("✓ I've joined", callback_data="fsub_chk", style=enums.ButtonStyle.SUCCESS)])
+    await message.reply_text("<b>Join our channel first</b>\nYou haven't joined yet. Join, then press <b>I've joined</b> and send the file again.",
+                             reply_markup=InlineKeyboardMarkup(rows))
+    return False
+
 @bot.on_message(filters.private & (filters.video | filters.document) & ~filters.service)
 async def on_file_receive(client, message):
     uid = message.from_user.id
     config = get_user_config(uid)
     
     if str(uid) in db.banned:
-        return await message.reply_text("🚫 <b>You are banned from using this bot.</b>", reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text("🚫 <b>You are banned from using this bot.</b>")
+    if not await fsub_gate(message):
+        return
+    if not await token_gate(message):
+        return
     
     file = message.video or message.document
     if not file:
@@ -3441,7 +3898,7 @@ async def on_file_receive(client, message):
         else:
             text += "\n\nUltra plan required for unlimited size."
         btn = [[InlineKeyboardButton("View Plans", callback_data="ui_plans", style=enums.ButtonStyle.PRIMARY)]]
-        return await message.reply_text(text, reply_markup=InlineKeyboardMarkup(btn), reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text(text, reply_markup=InlineKeyboardMarkup(btn))
 
     if int(uid) != ADMIN_ID and not check_daily_limit(uid):
         reset_time = get_reset_time()
@@ -3453,7 +3910,7 @@ async def on_file_receive(client, message):
         else:
             text += "\nUltra plan required for more conversions."
         btn = [[InlineKeyboardButton("View Plans", callback_data="ui_plans", style=enums.ButtonStyle.PRIMARY)]]
-        return await message.reply_text(text, reply_markup=InlineKeyboardMarkup(btn), reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text(text, reply_markup=InlineKeyboardMarkup(btn))
 
     async with tasks_lock:
         active_count = len([
@@ -3475,7 +3932,7 @@ async def on_file_receive(client, message):
                 f"⚠️ <b>You already have {active_count}/{limits['concurrent']} active tasks!</b>\n"
                 "Please wait for one to finish or cancel one."
             )
-        return await message.reply_text(text, reply_markup=btns, reply_parameters=ReplyParameters(message_id=message.id))
+        return await message.reply_text(text, reply_markup=btns)
         
         
     if is_free and limits["cooldown"] > 0:
@@ -3484,8 +3941,7 @@ async def on_file_receive(client, message):
             if rem > 0:
                 return await message.reply_text(
                     f"⏳ <b>Cooldown active!</b>\n"
-                    f"Please wait <code>{int(rem)} seconds</code> before sending another file.",
-                    reply_parameters=ReplyParameters(message_id=message.id)
+                    f"Please wait <code>{int(rem)} seconds</code> before sending another file."
                 )
 
     if config["mode"] == "ask":
@@ -3495,7 +3951,7 @@ async def on_file_receive(client, message):
             [InlineKeyboardButton("🎵 Audio", callback_data=f"go_audio_{message.id}", style=enums.ButtonStyle.PRIMARY)],
             [InlineKeyboardButton("❌ Cancel", callback_data="close_all", style=enums.ButtonStyle.DANGER)]
         ]
-        msg = await message.reply_text("<b><i>How should I process this file?</i></b>", reply_markup=InlineKeyboardMarkup(btns), reply_parameters=ReplyParameters(message_id=message.id))
+        msg = await message.reply_text("<b><i>How should I process this file?</i></b>", reply_markup=InlineKeyboardMarkup(btns))
         temp_context[f"prompt_{uid}"] = msg.id
     elif config["mode"] == "swap":
         if message.video:
@@ -3525,7 +3981,7 @@ async def start_conversion(client, message, target, prompt_msg=None):
             await prompt_msg.edit_text(text, reply_markup=InlineKeyboardMarkup(btns))
             temp_context[f"prompt_{uid}"] = prompt_msg.id
         else:
-            m = await message.reply_text(text, reply_markup=InlineKeyboardMarkup(btns), reply_parameters=ReplyParameters(message_id=message.id))
+            m = await message.reply_text(text, reply_markup=InlineKeyboardMarkup(btns))
             temp_context[f"prompt_{uid}"] = m.id
     else:
         if prompt_msg:
@@ -3553,6 +4009,94 @@ async def receive_name(client, message):
         except:
             pass
     await process_now(client, ctx["msg"], ctx["target"], new_name)
+
+PARALLEL_CONNS = 8
+
+async def parallel_download(uc, msg, path, task_id, conns=PARALLEL_CONNS):
+    """Real multi-connection download: `conns` separate sessions to Telegram, each fetching different 1MB parts of the same file."""
+    from pyrogram.file_id import FileId
+    media = msg.video or msg.document or msg.audio
+    fid = FileId.decode(media.file_id)
+    size = media.file_size
+    loc = raw.types.InputDocumentFileLocation(id=fid.media_id, access_hash=fid.access_hash,
+                                              file_reference=fid.file_reference, thumb_size=fid.thumbnail_size)
+    CH, n = 1024 * 1024, (size + 1024 * 1024 - 1) // (1024 * 1024)
+    sessions, tasks_, fd = [], [], None
+    nxt, done = [0], [0]
+    async def worker(s):
+        while nxt[0] < n:
+            i = nxt[0]
+            nxt[0] += 1
+            for attempt in range(6):
+                try:
+                    r = await s.invoke(raw.functions.upload.GetFile(location=loc, offset=i * CH, limit=CH), sleep_threshold=30)
+                    break
+                except Exception:
+                    if attempt == 5:
+                        raise
+                    await asyncio.sleep(1 + attempt)
+            if not isinstance(r, raw.types.upload.File):
+                raise RuntimeError("unexpected file response (CDN)")
+            await asyncio.to_thread(os.pwrite, fd, r.bytes, i * CH)
+            done[0] += len(r.bytes)
+            await progress_bar(min(done[0], size), size, task_id)
+    try:
+        for _ in range(conns):
+            sessions.append(await uc.get_session(fid.dc_id, is_media=True, temporary=True))
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_TRUNC)
+        os.ftruncate(fd, size)
+        tasks_ = [asyncio.create_task(worker(s)) for s in sessions]
+        await asyncio.gather(*tasks_)
+    except BaseException:
+        for t in tasks_:
+            t.cancel()
+        raise
+    finally:
+        if fd is not None:
+            os.close(fd)
+        for s in sessions:
+            try:
+                await s.stop()
+            except Exception:
+                pass
+
+async def fast_download(bot_client, message, path, task_id):
+    """Premium speed: the bot copies the file into the dump channel, the Premium userbot downloads it from there."""
+    dump = cfg("DUMP_CHANNEL")
+    cp = None
+    try:
+        cp = await bot_client.copy_message(dump, message.chat.id, message.id)
+        try:
+            await premium_client.get_chat(dump)
+        except Exception:
+            pass
+        dm = await premium_client.get_messages(dump, cp.id)
+        if not dm or getattr(dm, "empty", False):
+            raise RuntimeError("dump message not visible to the userbot")
+        t0 = time.time()
+        try:
+            await parallel_download(premium_client, dm, path, task_id)
+        except (StopTransmission, asyncio.CancelledError):
+            raise
+        except Exception as e:
+            logger.warning(f"parallel download failed ({e}), single-connection fallback")
+            await premium_client.download_media(dm, file_name=path, progress=progress_bar, progress_args=(task_id,))
+        ok = os.path.exists(path)
+        if ok:
+            sz = os.path.getsize(path)
+            logger.info(f"fast download: {sz / 1048576:.0f}MB in {time.time() - t0:.1f}s ({sz / 1048576 / max(time.time() - t0, 0.1):.1f} MB/s)")
+        return ok
+    except (StopTransmission, asyncio.CancelledError):
+        raise
+    except Exception as e:
+        logger.warning(f"fast download failed, using the normal download: {e}")
+        return False
+    finally:
+        if cp:
+            try:
+                await bot_client.delete_messages(dump, cp.id)
+            except Exception:
+                pass
 
 async def process_now(client, message, target, filename):
     uid = message.from_user.id
@@ -3596,12 +4140,16 @@ async def process_now(client, message, target, filename):
         task.stage = "downloading"
         task.download_task = asyncio.current_task()
         
-        await client.download_media(
-            message,
-            file_name=path,
-            progress=progress_bar,
-            progress_args=(task_id,)
-        )
+        fast_ok = False
+        if limits["use_dump"] and premium_client and cfg("DUMP_CHANNEL"):
+            fast_ok = await fast_download(client, message, path, task_id)
+        if not fast_ok:
+            await client.download_media(
+                message,
+                file_name=path,
+                progress=progress_bar,
+                progress_args=(task_id,)
+            )
         
         if task.cancel_event.is_set():
             raise asyncio.CancelledError
@@ -3638,7 +4186,8 @@ async def process_now(client, message, target, filename):
                 thumb = await get_video_thumbnail(path, f"{path}_t.jpg")
         
         duration = get_duration(path) if (should_send_as_video or target == "audio") else 0
-        cap = render_caption(config["caption"], filename, file_size, duration)
+        cap = apply_cap_font(render_caption(config["caption"], filename, file_size, duration), config)
+        mi_markup = await mediainfo_markup(path, filename, config)
         
         task.stage = "uploading"
         task.stage_start = time.time()
@@ -3656,12 +4205,12 @@ async def process_now(client, message, target, filename):
             )
             if not dump_msg:
                 raise Exception("Failed to upload to dump channel")
-            await copy_from_dump_to_user(client, dump_msg, message.chat.id, cap, message.id, spoiler=bool(config.get("spoiler")) and should_send_as_video)
+            await copy_from_dump_to_user(client, dump_msg, message.chat.id, cap, message.id, spoiler=bool(config.get("spoiler")) and should_send_as_video, reply_markup=mi_markup)
         else:
             if target == "audio":
                 await client.send_audio(
                     message.chat.id, audio=path, caption=cap, thumb=thumb,
-                    duration=duration, file_name=filename,
+                    duration=duration, file_name=filename, reply_markup=mi_markup,
                     progress=progress_bar, progress_args=(task_id,),
                     reply_parameters=ReplyParameters(message_id=message.id)
                 )
@@ -3670,14 +4219,14 @@ async def process_now(client, message, target, filename):
                     message.chat.id, video=path, caption=cap, thumb=thumb,
                     duration=duration, file_name=filename, supports_streaming=True,
                     has_spoiler=bool(config.get("spoiler")),
-                    video_cover=cover,
+                    video_cover=cover, reply_markup=mi_markup,
                     progress=progress_bar, progress_args=(task_id,),
                     reply_parameters=ReplyParameters(message_id=message.id)
                 )
             else:
                 await client.send_document(
                     message.chat.id, document=path, caption=cap, thumb=thumb,
-                    file_name=filename, progress=progress_bar, progress_args=(task_id,),
+                    file_name=filename, reply_markup=mi_markup, progress=progress_bar, progress_args=(task_id,),
                     reply_parameters=ReplyParameters(message_id=message.id)
                 )
         
@@ -3777,7 +4326,7 @@ async def main():
         await bot.set_bot_commands([
             BotCommand("start", "Start the bot"), BotCommand("help", "Help menu"),
             BotCommand("settings", "Your settings"), BotCommand("status", "Active tasks"),
-            BotCommand("admin", "Admin panel"), BotCommand("bsetting", "Bot settings (limits, maintenance)"),
+            BotCommand("admin", "Admin panel"), BotCommand("bsetting", "Bot settings"), BotCommand("maintenance", "Maintenance mode on/off"),
             BotCommand("stats", "Bot statistics"), BotCommand("speedtest", "Server speedtest"),
             BotCommand("log", "Show recent bot logs"),
             BotCommand("mediainfo", "MediaInfo of replied media/link"),
@@ -3800,6 +4349,12 @@ async def main():
     except Exception as e:
         logger.warning(f"restart notice failed: {e}")
     bot_me = await bot.get_me()
+    _TG_AUTHOR.update(name=bot_me.first_name, url=f"https://t.me/{bot_me.username}")
+    try:
+        await asyncio.to_thread(_tg_api, "editAccountInfo", {"access_token": _tg_token(), "short_name": "MediaInfo",
+                                                         "author_name": bot_me.first_name, "author_url": _TG_AUTHOR["url"]})
+    except Exception as e:
+        logger.warning(f"telegraph author update failed: {e}")
     logger.info(f"Bot started: @{bot_me.username} ({bot_me.first_name}) [{bot_me.id}]")
     logger.info(f"Admin ID: {ADMIN_ID}")
     print(f"🤖 Bot:       @{bot_me.username} ({bot_me.first_name})")
@@ -3843,4 +4398,4 @@ if __name__ == "__main__":
     print("=" * 50)
     print(f"🚀 Starting {VERSION}...")
     print("=" * 50)
-    bot.loop.run_until_complete(main())
+    asyncio.get_event_loop().run_until_complete(main())

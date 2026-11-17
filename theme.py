@@ -95,9 +95,16 @@ def short(v, n=40):
 
 
 def bar(percent, length=12):
-    percent = max(0, min(100, percent or 0))
-    filled = int(length * percent / 100)
-    return "■" * filled + "□" * (length - filled)
+    """azml-go style bar: [■■■▥□□□□□□□□] - 12 cells, partial cell shown with ▤▥▦▧▨▩."""
+    p = max(0, min(100, percent or 0))
+    full = min(int(p) // 8, 12)
+    part = int(p) % 8 - 1
+    out = "■" * full
+    added = full
+    if part >= 0 and added < 12:
+        out += "▤▥▦▧▨▩■"[part]
+        added += 1
+    return "[" + out + "□" * (12 - added) + "]"
 
 
 class _LegacyTheme:
@@ -257,7 +264,7 @@ class _LegacyTheme:
         "┊ <code>/help</code> - Show this help menu.\n"
         "┊ <code>/settings</code> - Settings: upload mode, thumb, caption, prefix/suffix/remname, auto thumb, quota.\n"
         "┊ <code>/status</code> - Your active tasks.\n"
-        "┊ <code>/cancel N</code> - Cancel task number N.\n"
+        "┊ <code>/cancel_id</code> - Cancel the task with this id.\n"
         "┊ <code>/mediainfo</code> - Reply to media/link: full MediaInfo.\n"
         "┊ <code>/cover</code> - Reply to a video: add your thumb/TMDB poster as cover.\n"
         "┊ <code>/poster</code> or <code>/p</code> - Search TMDB: browse posters/backdrops, set as thumb, get original.\n"
@@ -439,7 +446,7 @@ class _LegacyTheme:
         "┠🚀 <b>Speed:</b> {speed}/s | ⏱️ <b>Elapsed:</b> {elapsed}\n"
         "┠🚂 <b>Engine:</b> #TjGram | 💠 <b>Mode:</b> {mode_tag} | #Tg\n"
         "┠🙋 <b>User:</b> <code>{user}</code> | 🎯 <b>Task:</b> #{pos}\n"
-        "┖❌ <code>/cancel {pos}</code></blockquote>"
+        "┖❌ <code>/cancel_{gid}</code></blockquote>"
     )
     STATUS_CANCELLED = "<blockquote>┎🏷️ <b>Name:</b> <i>{name}</i>\n┖ ❌ <b>Cancelled</b></blockquote>"
     STATUS_FOOTER = (
@@ -459,6 +466,7 @@ class _LegacyTheme:
         "• <b>Daily limit:</b> {daily} conversions\n"
         "• <b>Max file size:</b> {size}\n"
         "• <b>Concurrent tasks:</b> {conc}\n"
+        "• <b>Speed:</b> {speed}\n"
         "• <b>Cooldown:</b> {cooldown}\n"
         "━━━━━━━━━━━━━━━━━━</blockquote>{extra}"
     )
@@ -512,21 +520,33 @@ class _LegacyTheme:
     )
 
 
+def circle_bar(percent, length=12):
+    """azml-go status bar: ⬤⬤⬤◔○○○"""
+    p = max(0.0, min(100.0, float(percent or 0)))
+    full = int(p * length / 100)
+    rem = p * length / 100 - full
+    out = "⬤" * full
+    if full < length and rem >= 0.5:
+        out += "◔"
+        full += 1
+    return out + "○" * (length - full)
+
+
 def tree(items):
-    """[(label, value_html), ...] -> minimal ╭ ┊ ╰ lines (no blockquote)."""
+    """[(label, value_html), ...] -> azml-go style <b>╭</b> / ┠ / <b>╰</b> lines (no blockquote)."""
     items = [i for i in items if i]
     out = []
     for n, (label, value) in enumerate(items):
-        lead = "╭" if n == 0 else ("╰" if n == len(items) - 1 else "┊")
+        lead = "<b>╭</b>" if n == 0 else ("<b>╰</b>" if n == len(items) - 1 else "┠")
         if len(items) == 1:
-            lead = "╰"
-        out.append(f"{lead}<b> {label} :</b> {value}")
+            lead = "<b>╰</b>"
+        out.append(f"{lead} <b>{label} :</b> {value}")
     return "\n".join(out)
 
 
 def mark(on, label):
-    """Toggle label: '✅️ Label' only when active."""
-    return f"✅️ {label}" if on else label
+    """Toggle label: '✓ Label' (green) only when active."""
+    return f"✓ {label}" if on else label
 
 
 def pager(prefix, page, pages):
@@ -546,11 +566,11 @@ class MinimalTheme(_LegacyTheme):
 
 <i>I can rename your files, change their thumbnail and caption, convert video ↔ file and extract audio.</i>
 
-<blockquote>╭<b> Rename :</b> <i>custom name, prefix, suffix, regex</i>
-┊<b> Thumbnail :</b> <i>your photo or auto TMDB poster</i>
-┊<b> Convert :</b> <i>video ↔ file, audio extract</i>
-┊<b> Caption :</b> <i>HTML with variables</i>
-╰<b> Extras :</b> <i>screenshots, cover, mediainfo, posters</i></blockquote>
+<blockquote><b>╭</b> <b>Rename :</b> <i>custom name, prefix, suffix, regex</i>
+┠ <b>Thumbnail :</b> <i>your photo or auto TMDB poster</i>
+┠ <b>Convert :</b> <i>video ↔ file, audio extract</i>
+┠ <b>Caption :</b> <i>HTML with variables</i>
+<b>╰</b> <b>Extras :</b> <i>screenshots, cover, mediainfo, posters</i></blockquote>
 
 <blockquote><b>Send me a video or file to start. Type /help to get a list of available commands</b></blockquote>
 <blockquote>Developed by <a href='{dev_link}'><b>{dev_name}</b></a></blockquote>"""
@@ -558,25 +578,25 @@ class MinimalTheme(_LegacyTheme):
                   "help": "Help", "group": "Group", "channel": "Channel"}
     ABOUT = """㊂ <b><u>About Bot :</u></b>
 
-<blockquote>╭<b> Bot Name :</b> <a href='https://t.me/{username}'>{bot_name}</a>
-┊<b> Version :</b> <code>{version}</code>
-┊<b> Language :</b> <a href='https://www.python.org/'>Python 3.13</a>
-┊<b> Library :</b> <a href='https://github.com/Tj-Bots/tjgram'>TjGram</a>
-╰<b> Channel :</b> <a href='{channel}'>Tj Bots</a></blockquote>
+<blockquote><b>╭</b> <b>Bot Name :</b> <a href='https://t.me/{username}'>{bot_name}</a>
+┠ <b>Version :</b> <code>{version}</code>
+┠ <b>Language :</b> <a href='https://www.python.org/'>Python 3.13</a>
+┠ <b>Library :</b> <a href='https://github.com/Tj-Bots/tjgram'>TjGram</a>
+<b>╰</b> <b>Channel :</b> <a href='{channel}'>Tj Bots</a></blockquote>
 
 <blockquote>Developed by <a href='{dev_link}'><b>{dev_name}</b></a></blockquote>"""
     ABOUT_SOURCE = "Source Code"
     SERVER = """⌬ <b><i>Server Status :</i></b>
 
-<blockquote>╭<b> CPU :</b> {cpu_bar} {cpu}%
-┊<b> RAM :</b> {ram_bar} {ram}%
-┊<b> Disk :</b> {disk_bar} {disk}%
-╰<b> Tasks :</b> {tasks_bar} {tasks}/{max_tasks}</blockquote>
+<blockquote><b>╭</b> <b>CPU :</b> {cpu_bar} {cpu}%
+┠ <b>RAM :</b> {ram_bar} {ram}%
+┠ <b>Disk :</b> {disk_bar} {disk}%
+<b>╰</b> <b>Tasks :</b> {tasks_bar} {tasks}/{max_tasks}</blockquote>
 
-<blockquote>╭<b> RAM Used :</b> {ram_u} / {ram_t}
-┊<b> Disk Free :</b> {disk_f} / {disk_t}
-┊<b> Downloads :</b> {dls} | <b>Uploads :</b> {uls}
-╰<b> Uptime :</b> {uptime}</blockquote>"""
+<blockquote><b>╭</b> <b>RAM Used :</b> {ram_u} / {ram_t}
+┠ <b>Disk Free :</b> {disk_f} / {disk_t}
+┠ <b>Downloads :</b> {dls} | <b>Uploads :</b> {uls}
+<b>╰</b> <b>Uptime :</b> {uptime}</blockquote>"""
 
     MODE_NAMES = {"ask": "Ask", "video": "Video", "file": "File", "swap": "Swap", "audio": "Audio"}
     PLAN_NAMES = {"free": "Free", "test": "Test", "gold": "Gold", "ultra": "Ultra", "admin": "Admin"}
@@ -586,68 +606,105 @@ class MinimalTheme(_LegacyTheme):
                       "name": "Rename Settings", "media": "Media Settings", "audio": "Audio Settings",
                       "poster": "Poster Settings", "quota": "Quota & Plan", "reset": "Reset Setting"}
 
-    USET_MAIN = """㊂ <b><u>User Settings : {name}</u></b>
+    USET_HOME = """㊂ <b><u>User Settings :</u></b>
 
-<blockquote>╭<b> ID :</b> <code>{id}</code>
-┊<b> Upload Type :</b> <i>{mode}</i>
-┊<b> Rename Prompt :</b> <i>{rename}</i>
-┊<b> Thumbnail :</b> <i>{thumb}</i>
-┊<b> Auto Thumbnail :</b> <i>{auto_thumb}</i>
-┊<b> Caption :</b> <i>{caption}</i>
-┊<b> Prefix :</b> <code>{prefix}</code>
-┊<b> Suffix :</b> <code>{suffix}</code>
-┊<b> Remname :</b> <code>{remname}</code>
-┊<b> Screenshots :</b> <code>{screenshots}</code>
-┊<b> Spoiler :</b> <i>{spoiler}</i>
-┊<b> Audio :</b> <code>{fmt}</code> / <code>{br}</code>
-╰<b> Poster :</b> <code>{lang}</code> / <code>{kind}</code></blockquote>
+<blockquote><b>╭</b> <b>Name :</b> {name}
+<b>╰</b> <b>User ID :</b> <code>{id}</code></blockquote>"""
+    USET_MENU_BTNS = {"universal": "Universal Settings", "leech": "Leech Settings", "reset": "Reset Setting"}
+    USET_UNIVERSAL = """㊂ <b><u>Universal Settings : {name}</u></b>
 
-<blockquote>➲ ✅ marks a setting that is on / customised
-➲ Press a button to change it</blockquote>"""
-    USET_CHOICE = """㊂ <b><u>{title} : {name}</u></b>
+<blockquote><b>╭</b> <b>Daily Tasks :</b> <code>{used}</code> today
+┠ <b>Plan :</b> <i>{plan}</i>
+┠ <b>Audio Format :</b> <i>{fmt}</i>
+┠ <b>Audio Quality :</b> <i>{br}</i>
+┠ <b>MediaInfo Mode :</b> <i>{mediainfo}</i>
+┠ <b>Poster Language :</b> <i>{lang}</i>
+<b>╰</b> <b>Poster Type :</b> <i>{kind}</i></blockquote>"""
+    USET_PAGE = """㊂ <b><u>{title} Settings :</u></b>
 
-<blockquote>╭<b> Current :</b> <code>{current}</code>
-╰<b> Choose :</b> <i>press an option below</i></blockquote>
+➲ <b>{label} :</b> {value}
+
+➲ <b>Description :</b> <i>{desc}</i>"""
+    USET_ASK = "{page}\n\n➲ {ask}"
+    USET_BTN = {"set": "Set {n}", "change": "Change {n}", "delete": "↻ Delete", "stop": "Stop Change", "view": "View Thumbnail"}
+    CAP_FONTS = {"": "Regular", "b": "Bold", "i": "Italic", "u": "Underline", "s": "Strike", "code": "Mono", "spoiler": "Spoiler"}
+    USET_PAGES = {
+        "caption": ("Caption", "Leech Caption", "Custom caption on the files uploaded by the bot",
+                    "Send the Caption. HTML tags and <code>{filename}</code> <code>{filesize}</code> <code>{title}</code> <code>{year}</code> <code>{quality}</code> <code>{duration}</code> <code>{ext}</code> work (max 1024 chars)."),
+        "prefix": ("Prefix", "Leech Prefix", "Text added before the file name",
+                   "Send the Prefix, e.g. <code>[MyChannel] </code> (max 64 chars)."),
+        "suffix": ("Suffix", "Leech Suffix", "Text added at the end of the file name, before the extension",
+                   "Send the Suffix, e.g. <code> @MyChannel</code> (max 64 chars)."),
+        "remname": ("Remname", "Regex Remname", "Words or patterns removed or replaced in the file name",
+                    "Send rules separated by <code>|</code> - <code>word</code> removes, <code>old:new</code> replaces, e.g. <code>www\\S+|\\[.*?\\]|WEB-DL:WEB</code>"),
+        "remname_auto": ("AutoRename", "AutoRename Template", "Builds a new file name from {title} {season} {episode} {quality} {chapter}",
+                         "Send the AutoRename template, e.g. <code>{title} S{season}E{episode} [{quality}]</code>\nOffset: <code>{episode:+10}</code> adds 10 to the episode."),
+        "thumb": ("Thumbnail", "Custom Thumbnail", "Custom Thumbnail to appear on the files uploaded by the bot",
+                  "Send me a photo now - it becomes the thumbnail of all your files."),
+        "screenshots": ("Screenshots", "Screenshots", "How many screenshots are sent after every video (0 = off)", ""),
+    }
+    USET_MAIN = """㊂ <b><u>Leech Settings for {name}</u></b>
+
+<blockquote><b>╭</b> <b>User ID :</b> <code>{id}</code>
+┠ <b>Upload Type :</b> <i>{mode}</i>
+┠ <b>Rename Prompt :</b> <i>{rename}</i>
+┠ <b>Custom Thumbnail :</b> <i>{thumb}</i>
+┠ <b>Auto Thumbnail :</b> <i>{auto_thumb}</i>
+┠ <b>Caption :</b> <i>{caption}</i>
+┠ <b>Prefix :</b> <code>{prefix}</code>
+┠ <b>Suffix :</b> <code>{suffix}</code>
+┠ <b>Remname :</b> <code>{remname}</code>
+┠ <b>AutoRename Template :</b> <code>{remname_auto}</code>
+┠ <b>Rename Method :</b> <i>{method}</i>
+┠ <b>AutoRename :</b> <i>{autorename}</i>
+┠ <b>Screenshots :</b> <i>{screenshots}</i>
+┠ <b>Spoiler :</b> <i>{spoiler}</i>
+┠ <b>Caption Font :</b> <i>{cap_font}</i>
+┠ <b>Audio :</b> <code>{fmt}</code> / <code>{br}</code>
+<b>╰</b> <b>Poster :</b> <code>{lang}</code> / <code>{kind}</code></blockquote>"""
+    USET_CHOICE = """㊂ <b><u>{title} Settings :</u></b>
+
+➲ <b>{title} :</b> <i>{current}</i>
 
 <blockquote>{info}</blockquote>"""
     USET_CHOICE_INFO = {
-        "mode": "➲ <b>Ask</b> - ask me for each file\n┊ <b>Video</b> - streamable video\n┊ <b>File</b> - document\n┊ <b>Swap</b> - video becomes file, file becomes video\n╰ <b>Audio</b> - extract the sound track",
-        "fmt": "➲ Used when Upload Type is <b>Audio</b>\n┊ <b>MP3</b> - plays everywhere\n┊ <b>M4A</b> - smaller, same quality\n┊ <b>OPUS</b> - smallest\n╰ <b>FLAC</b> - lossless (quality is ignored)",
+        "mode": "➲ <b>Ask</b> - ask me for each file\n┠ <b>Video</b> - streamable video\n┠ <b>File</b> - document\n┠ <b>Swap</b> - video becomes file, file becomes video\n<b>╰</b> <b>Audio</b> - extract the sound track",
+        "fmt": "➲ Used when Upload Type is <b>Audio</b>\n┠ <b>MP3</b> - plays everywhere\n┠ <b>M4A</b> - smaller, same quality\n┠ <b>OPUS</b> - smallest\n<b>╰</b> <b>FLAC</b> - lossless (quality is ignored)",
         "br": "➲ Bitrate of the extracted audio (ignored for FLAC)",
-        "plang": "➲ /poster opens on this language. If a title has no images in it, All is shown\n┊ <b>No Text</b> - clean images without title text\n┊ <b>Original</b> - the language of the movie / series\n╰ <b>My Language</b> - your Telegram app language",
+        "plang": "➲ /poster opens on this language. If a title has no images in it, All is shown\n┠ <b>No Text</b> - clean images without title text\n┠ <b>Original</b> - the language of the movie / series\n<b>╰</b> <b>My Language</b> - your Telegram app language",
         "pkind": "➲ /poster opens on posters or on backdrops",
     }
     CAPTION_VARS = """<blockquote expandable>➲ <u><b>Variables :</b></u>
-╭ <code>{filename}</code> - file name
-┊ <code>{filesize}</code> - file size
-┊ <code>{title}</code> / <code>{year}</code> - clean title / year
-┊ <code>{quality}</code> - 1080P, 720P, 4K…
-┊ <code>{duration}</code> - video length
-╰ <code>{ext}</code> - file extension
+<b>╭</b> <code>{filename}</code> - file name
+┠ <code>{filesize}</code> - file size
+┠ <code>{title}</code> / <code>{year}</code> - clean title / year
+┠ <code>{quality}</code> - 1080P, 720P, 4K…
+┠ <code>{duration}</code> - video length
+<b>╰</b> <code>{ext}</code> - file extension
 ➲ HTML allowed: &lt;b&gt; &lt;i&gt; &lt;u&gt; &lt;code&gt; &lt;blockquote&gt;</blockquote>"""
     USET_QUOTA = """㊂ <b><u>Quota & Plan : {name}</u></b>
 
-<blockquote>╭<b> Plan :</b> <code>{plan}</code>{expires}
-┊<b> Used Today :</b> <code>{used}</code> / <code>{limit}</code> ({failed} failed)
-┊<b> Remaining :</b> <code>{remaining}</code>
-┊<b> Resets In :</b> <code>{reset}</code>
-┊<b> Max File Size :</b> <code>{max_size}</code>
-┊<b> Parallel Tasks :</b> <code>{concurrent}</code>
-╰<b> Cooldown :</b> <code>{cooldown}</code></blockquote>"""
-    USET_QUOTA_EXPIRES = "\n┊<b> Expires In :</b> <code>{left}</code>"
+<blockquote><b>╭</b> <b>Plan :</b> <code>{plan}</code>{expires}
+┠ <b>Used Today :</b> <code>{used}</code> / <code>{limit}</code> ({failed} failed)
+┠ <b>Remaining :</b> <code>{remaining}</code>
+┠ <b>Resets In :</b> <code>{reset}</code>
+┠ <b>Max File Size :</b> <code>{max_size}</code>
+┠ <b>Parallel Tasks :</b> <code>{concurrent}</code>
+<b>╰</b> <b>Cooldown :</b> <code>{cooldown}</code></blockquote>"""
+    USET_QUOTA_EXPIRES = "\n┠ <b>Expires In :</b> <code>{left}</code>"
     USET_RESET = """㊂ <b><u>Reset Settings :</u></b>
 
 <blockquote>➲ Upload type, rename prompt, thumbnail, caption, prefix / suffix / remname, auto thumbnail, screenshots, spoiler, audio and poster settings go back to default.
 ➲ Your plan and quota are kept.</blockquote>"""
     USET_RESET_DONE = "Settings reset to default"
 
-    USET_PROMPT = """㊂ <b><u>Edit {label} :</u></b>
+    USET_PROMPT = """㊂ <b><u>{label} Settings :</u></b>
 
-<blockquote>╭<b> Current :</b> <code>{current}</code>
-╰<b> Example :</b> <code>{example}</code></blockquote>
+<blockquote><b>╭</b> <b>Current :</b> <code>{current}</code>
+<b>╰</b> <b>Example :</b> <code>{example}</code></blockquote>
 
-<blockquote>➲ {hint}
-➲ <i>Send the new value now, or press ◀️ to go back.</i></blockquote>"""
+➲ {hint}
+<i>Send the new value now, or press ◀️ to go back.</i>"""
     USET_LABELS = {"caption": "Caption", "prefix": "Prefix", "suffix": "Suffix", "remname": "Remname", "thumb": "Thumbnail", "screenshots": "Screenshots"}
     USET_EXAMPLES = {
         "caption": "<b>{title} ({year})</b> | {quality} | {filesize}",
@@ -669,15 +726,7 @@ class MinimalTheme(_LegacyTheme):
 
     BSET_HOME = """㊂ <b><u>Bot Settings :</u></b>
 
-<blockquote>╭<b> Daily Limits (F/T/G/U) :</b> <code>{q}</code>
-┊<b> Parallel Tasks (F/T/G/U) :</b> <code>{c}</code>
-┊<b> Free Cooldown :</b> <code>{cooldown}</code>
-┊<b> Max Size (Free / Premium) :</b> <code>{size}</code>
-┊<b> Userbot :</b> <code>{userbot}</code>
-╰<b> Maintenance :</b> <code>{maint}</code></blockquote>
-
-<blockquote>➲ <b>Config Variables</b> - edit limits, sizes, prices, userbot session, channels and maintenance
-➲ Saved in MongoDB and applied instantly</blockquote>"""
+<i>Select a category below to view or edit configuration:</i>"""
     BSET_VARS = """㊂ <b><u>Config Variables :</u></b>
 
 <blockquote>{lines}</blockquote>
@@ -691,9 +740,9 @@ class MinimalTheme(_LegacyTheme):
 <blockquote>➲ Press a variable to edit it</blockquote>"""
     BSET_EDIT = """㊂ <b><u>Edit {key} :</u></b>
 
-<blockquote>╭<b> Description :</b> <i>{desc}</i>
-┊<b> Current :</b> <code>{current}</code>
-╰<b> Default :</b> <code>{default}</code></blockquote>
+<blockquote><b>╭</b> <b>Description :</b> <i>{desc}</i>
+┠ <b>Current :</b> <code>{current}</code>
+<b>╰</b> <b>Default :</b> <code>{default}</code></blockquote>
 
 <blockquote>➲ {hint}</blockquote>"""
     BSET_DESC = {
@@ -716,6 +765,12 @@ class MinimalTheme(_LegacyTheme):
         "CHANNEL_LINK": "Channel link shown in About",
         "UI_STYLE": "Look of every bot message: Minimal or Emoji",
         "RESTART_CONFIRM": "Ask for confirmation before /restart",
+        "RICH_MESSAGES": "Task status as a rich message with a Cancel button inside each task",
+        "SHORTENER_ENABLED": "Free users must open a shortener link (access token) before sending files",
+        "SHORTENER": "Shortener site domain, e.g. gplinks.com (uses /api?api=KEY&url=URL). May hold {api} and {url} placeholders",
+        "SHORTENER_API": "API key of the shortener site",
+        "TOKEN_TIMEOUT": "How many seconds one access token stays valid (default 86400 = 24h)",
+        "FSUB_IDS": "Force subscribe: channel IDs (-100...) separated by space. Users must join them before sending files (bot must be admin there). Empty = off",
         "UPSTREAM_REPO": "GitHub repo the bot updates from on every restart (needs a restart)",
         "UPSTREAM_BRANCH": "Branch the bot updates from on every restart (needs a restart)",
     }
@@ -731,8 +786,10 @@ class MinimalTheme(_LegacyTheme):
         "secret": "Send the Pyrogram session string. Your message is deleted right away. Send <code>-</code> to go back to the .env one.",
     }
     BSET_GROUP_NAMES = {"quota": "Daily Quotas", "conc": "Concurrency", "limits": "Limits & Cooldown",
-                        "price": "Plans & Pricing", "brand": "Branding", "sys": "System", "maint": "Maintenance"}
-    BSET_BTNS = {"vars": "Config Variables", "reset_all": "Reset All Config", "default": "Default",
+                        "price": "Plans & Pricing", "brand": "Branding", "sys": "System", "maint": "Maintenance",
+                        "session": "User Session (4GB+)", "short": "Shortener & Force Sub"}
+    BSET_BTNS = {"vars": "Config Variables", "session": "User Session (4GB+)", "short": "Shortener & Force Sub",
+                 "reset_all": "Reset All Config", "default": "Default",
                  "on": "Enable", "off": "Disable", "yes": "Yes!, Reset"}
     BSET_SAVED = "{label} = {value}"
     BSET_RESET_DONE = "All bot settings reset to default"
@@ -746,21 +803,21 @@ class MinimalTheme(_LegacyTheme):
 
     ADMIN_PANEL = """㊂ <b><u>Admin Panel :</u></b>
 
-<blockquote>╭<b> Admin :</b> <code>{admin}</code>
-┊<b> Users :</b> <code>{users}</code>
-┊<b> Banned :</b> <code>{banned}</code>
-┊<b> Test / Gold / Ultra :</b> <code>{test}</code> / <code>{gold}</code> / <code>{ultra}</code>
-┊<b> Redeem Codes :</b> <code>{redeem}</code>
-╰<b> Maintenance :</b> <code>{maint}</code></blockquote>
+<blockquote><b>╭</b> <b>Admin :</b> <code>{admin}</code>
+┠ <b>Users :</b> <code>{users}</code>
+┠ <b>Banned :</b> <code>{banned}</code>
+┠ <b>Test / Gold / Ultra :</b> <code>{test}</code> / <code>{gold}</code> / <code>{ultra}</code>
+┠ <b>Redeem Codes :</b> <code>{redeem}</code>
+<b>╰</b> <b>Maintenance :</b> <code>{maint}</code></blockquote>
 
 <blockquote expandable>➲ <u><b>Commands :</b></u>
-╭ /broadcast - reply to a message (<code>-f</code> to forward)
-┊ /ban /unban <code>[id]</code> · /users · /allban
-┊ /add_plan <code>[id] [test/gold/ultra] [duration]</code>
-┊ /remove_plan <code>[id]</code> · /plan_list
-┊ /gencodes <code>[count] [duration] [plan]</code> · /redeem_stats
-┊ /bsetting · /stats · /speedtest
-╰ /cancelall · /restart</blockquote>"""
+<b>╭</b> /broadcast - reply to a message (<code>-f</code> to forward)
+┠ /ban /unban <code>[id]</code> · /users · /allban
+┠ /add_plan <code>[id] [test/gold/ultra] [duration]</code>
+┠ /remove_plan <code>[id]</code> · /plan_list
+┠ /gencodes <code>[count] [duration] [plan]</code> · /redeem_stats
+┠ /bsetting · /stats · /speedtest
+<b>╰</b> /cancelall · /restart</blockquote>"""
     ADMIN_BTNS = {"bset": "Bot Settings", "stats": "Bot Stats", "maint": "Maintenance"}
 
     MAINTENANCE = """㊂ <b><u>Under Maintenance :</u></b>
@@ -773,12 +830,12 @@ class MinimalTheme(_LegacyTheme):
     HELP_BTNS = {"thumb": "Thumbnail", "cap": "Caption", "redeem": "Redeem", "cmds": "Commands", "settings": "Settings"}
     HELP_THUMB = """㊂ <b><u>Thumbnail :</u></b>
 
-<blockquote>╭ Send any photo - it becomes your thumbnail
-┊ It is applied to all your next files
-╰ /settings → Thumbnail Settings → Auto Thumbnail (TMDB poster)</blockquote>
+<blockquote><b>╭</b> Send any photo - it becomes your thumbnail
+┠ It is applied to all your next files
+<b>╰</b> /settings → Thumbnail Settings → Auto Thumbnail (TMDB poster)</blockquote>
 
-<blockquote>╭ /viewthumb - view your thumbnail
-╰ /delthumb - delete your thumbnail</blockquote>"""
+<blockquote><b>╭</b> /viewthumb - view your thumbnail
+<b>╰</b> /delthumb - delete your thumbnail</blockquote>"""
     HELP_CAP = """㊂ <b><u>Caption :</u></b>
 
 <blockquote>➲ <code>/set_cap</code> + your caption, or /settings → Caption Settings</blockquote>
@@ -786,39 +843,39 @@ class MinimalTheme(_LegacyTheme):
 """ + CAPTION_VARS + """
 
 <blockquote>➲ <u><b>Examples :</b></u>
-╭ <code>/set_cap &lt;b&gt;{title} ({year})&lt;/b&gt;</code>
-╰ <code>/set_cap &lt;b&gt;{filename}&lt;/b&gt; | {quality} | {filesize}</code></blockquote>
+<b>╭</b> <code>/set_cap &lt;b&gt;{title} ({year})&lt;/b&gt;</code>
+<b>╰</b> <code>/set_cap &lt;b&gt;{filename}&lt;/b&gt; | {quality} | {filesize}</code></blockquote>
 
-<blockquote>╭ /see_caption - view current caption
-╰ /del_caption - reset to default</blockquote>"""
+<blockquote><b>╭</b> /see_caption - view current caption
+<b>╰</b> /del_caption - reset to default</blockquote>"""
     HELP_REDEEM = """㊂ <b><u>Redeem Codes :</u></b>
 
-<blockquote>╭ Get a code from the admin
-┊ Send <code>/redeem CODE</code>
-╰ Each user can redeem only one code</blockquote>
+<blockquote><b>╭</b> Get a code from the admin
+┠ Send <code>/redeem CODE</code>
+<b>╰</b> Each user can redeem only one code</blockquote>
 
 <blockquote>➲ <b>Example :</b> <code>/redeem ABC12345</code></blockquote>"""
     HELP_COMMANDS = """㊂ <b><u>Commands :</u></b>
 
-<blockquote>╭ /start - start the bot
-┊ /help - this menu
-┊ /settings - all your settings
-┊ /status - your active tasks
-┊ /cancel <code>N</code> - cancel task N
-┊ /mediainfo - reply to media / link
-┊ /cover - reply to a video: add cover
-┊ /poster or /p - search posters & backdrops
-┊ /ping - bot latency
-╰ /plans - premium plans</blockquote>
+<blockquote><b>╭</b> /start - start the bot
+┠ /help - this menu
+┠ /settings - all your settings
+┠ /status - your active tasks
+┠ /cancel_<code>id</code> - cancel the task with this id
+┠ /mediainfo - reply to media / link
+┠ /cover - reply to a video: add cover
+┠ /poster or /p - search posters & backdrops
+┠ /ping - bot latency
+<b>╰</b> /plans - premium plans</blockquote>
 
-<blockquote>╭ /viewthumb · /delthumb - thumbnail
-┊ /set_cap · /see_caption · /del_caption - caption
-╰ /redeem <code>CODE</code> - redeem a code</blockquote>"""
+<blockquote><b>╭</b> /viewthumb · /delthumb - thumbnail
+┠ /set_cap · /see_caption · /del_caption - caption
+<b>╰</b> /redeem <code>CODE</code> - redeem a code</blockquote>"""
 
     STARTING = "<i>Starting...</i>"
-    THUMB_SAVED = "<b>Thumbnail Saved!</b>\n<blockquote>╰ It will be used for all your next files.</blockquote>"
+    THUMB_SAVED = "<b>Thumbnail Saved!</b>\n<blockquote><b>╰</b> It will be used for all your next files.</blockquote>"
     THUMB_DELETED = "<b>Thumbnail Deleted!</b>"
-    NO_THUMB = "<b>No Thumbnail Set!</b>\n<blockquote>╰ Send me any photo to set one.</blockquote>"
+    NO_THUMB = "<b>No Thumbnail Set!</b>\n<blockquote><b>╰</b> Send me any photo to set one.</blockquote>"
     BANNED = "<b>You are banned from using this bot.</b>"
 
     AUDIO_FORMATS = {"mp3": ("MP3", "libmp3lame", "mp3"), "m4a": ("M4A", "aac", "m4a"),
@@ -827,12 +884,12 @@ class MinimalTheme(_LegacyTheme):
 
     MEDIAINFO_HELP = """㊂ <b><u>MediaInfo :</u></b>
 
-<blockquote>╭ Reply to a video / audio / document with <code>/mediainfo</code>
-╰ Or send a direct link: <code>/mediainfo https://…/file.mkv</code></blockquote>"""
+<blockquote><b>╭</b> Reply to a video / audio / document with <code>/mediainfo</code>
+<b>╰</b> Or send a direct link: <code>/mediainfo https://…/file.mkv</code></blockquote>"""
     MEDIAINFO_DONE = """㊂ <b><u>MediaInfo :</u></b>
 
-<blockquote>╭<b> Name :</b> <code>{name}</code>
-╰<b> Report :</b> <a href='{url}'>Open on Telegraph</a></blockquote>"""
+<blockquote><b>╭</b> <b>Name :</b> <code>{name}</code>
+<b>╰</b> <b>Report :</b> <a href='{url}'>Open on Telegraph</a></blockquote>"""
     COVER_HELP = """㊂ <b><u>Cover :</u></b>
 
 <blockquote>➲ Reply to a <b>video</b> with <code>/cover</code> to re-send it with your thumbnail (or an auto TMDB poster) as the video cover. No re-upload.</blockquote>"""
@@ -840,27 +897,27 @@ class MinimalTheme(_LegacyTheme):
     COVER_NOT_FOUND = "<b>No poster found for this file name.</b>"
     INFO_HELP = """㊂ <b><u>Poster Search :</u></b>
 
-<blockquote>╭ <code>/poster Oppenheimer 2023</code> (or <code>/p</code>)
-┊ or reply to a video / file with <code>/p</code>
-╰ browse posters & backdrops by language, set one as thumbnail or get the original</blockquote>"""
+<blockquote><b>╭</b> <code>/poster Oppenheimer 2023</code> (or <code>/p</code>)
+┠ or reply to a video / file with <code>/p</code>
+<b>╰</b> browse posters & backdrops by language, set one as thumbnail or get the original</blockquote>"""
     INFO_NOT_FOUND = "<b>Nothing found on TMDB.</b>"
 
     POSTER_SEARCHING = "<i>Searching TMDB for</i> <code>{query}</code><i>...</i>"
     POSTER_RESULTS = """㊂ <b><u>Poster Search :</u></b>
 
-<blockquote>╭<b> Query :</b> <code>{query}</code>
-┊<b> Results :</b> <code>{count}</code>
-╰<b> Page :</b> <code>{page}/{pages}</code></blockquote>
+<blockquote><b>╭</b> <b>Query :</b> <code>{query}</code>
+┠ <b>Results :</b> <code>{count}</code>
+<b>╰</b> <b>Page :</b> <code>{page}/{pages}</code></blockquote>
 
 <blockquote>➲ Press a title to browse its posters & backdrops</blockquote>"""
     POSTER_ITEM = "{title} ({year})"
     POSTER_CAPTION = """<b>{title} ({year})</b>
 
-<blockquote>╭<b> TMDB :</b> <a href='{url}'>{url_short}</a>
-┊<b> Type :</b> <i>{type}</i>
-┊<b> Language :</b> <i>{lang}</i>
-┊<b> Size :</b> <code>{w} x {h}</code>
-╰<b> Image :</b> <code>{i}/{n}</code></blockquote>"""
+<blockquote><b>╭</b> <b>TMDB :</b> <a href='{url}'>{url_short}</a>
+┠ <b>Type :</b> <i>{type}</i>
+┠ <b>Language :</b> <i>{lang}</i>
+┠ <b>Size :</b> <code>{w} x {h}</code>
+<b>╰</b> <b>Image :</b> <code>{i}/{n}</code></blockquote>"""
     POSTER_LANG_PICK = """㊂ <b><u>Poster Language : {title}</u></b>
 
 <blockquote>➲ Choose which images to show. The number is how many images exist in that language.</blockquote>"""
@@ -869,7 +926,7 @@ class MinimalTheme(_LegacyTheme):
     POSTER_ORIENT = {"portrait": "Portrait", "landscape": "Landscape"}
     POSTER_BT = {"thumb": "Set Thumbnail", "thumb_on": "✅️ Thumbnail Set", "orig": "Send Original",
                  "more": "More", "all": "All", "close": "❌"}
-    POSTER_ORIG_CAPTION = "<b>{title} ({year})</b>\n<blockquote>╰ <code>{type} · {w}x{h} · {lang}</code></blockquote>"
+    POSTER_ORIG_CAPTION = "<b>{title} ({year})</b>\n<blockquote><b>╰</b> <code>{type} · {w}x{h} · {lang}</code></blockquote>"
     POSTER_THUMB_SET = "Thumbnail set"
     POSTER_THUMB_REMOVED = "Thumbnail removed"
     POSTER_SENDING = "Sending the original file..."
@@ -883,72 +940,74 @@ class MinimalTheme(_LegacyTheme):
     POSTER_LANG_OPTS = {"all": "All", "en": "English", "ul": "My Language", "xx": "No Text", "orig": "Original"}
 
     STATS_BOT = """⌬ <b><i>BOT STATISTICS :</i></b>
-╰ <b>Bot Uptime :</b> {bot_uptime}
+<blockquote>◈ <b>Bot Uptime :</b> {bot_uptime}</blockquote>
 
-<blockquote>╭ <b><i>RAM ( MEMORY ) :</i></b>
-┊ {ram_bar} {ram}%
-╰ <b>U :</b> {ram_u} | <b>F :</b> {ram_f} | <b>T :</b> {ram_t}</blockquote>
+<blockquote><b>╭</b> <b><i>RAM ( MEMORY ) :</i></b>
+┠ {ram_bar} {ram}%
+┠ <b>App RAM :</b> <code>{app_ram}</code>
+<b>╰</b> <b>U :</b> {ram_u} | <b>F :</b> {ram_f} | <b>T :</b> {ram_t}</blockquote>
 
-<blockquote>╭ <b><i>SWAP MEMORY :</i></b>
-┊ {swap_bar} {swap}%
-╰ <b>U :</b> {swap_u} | <b>F :</b> {swap_f} | <b>T :</b> {swap_t}</blockquote>
+<blockquote><b>╭</b> <b><i>SWAP MEMORY :</i></b>
+┠ {swap_bar} {swap}%
+<b>╰</b> <b>U :</b> {swap_u} | <b>F :</b> {swap_f} | <b>T :</b> {swap_t}</blockquote>
 
-<blockquote>╭ <b><i>DISK :</i></b>
-┊ {disk_bar} {disk}%
-┊ <b>Total Disk Read :</b> {disk_read}
-┊ <b>Total Disk Write :</b> {disk_write}
-╰ <b>U :</b> {disk_u} | <b>F :</b> {disk_f} | <b>T :</b> {disk_t}</blockquote>"""
+<blockquote><b>╭</b> <b><i>DISK :</i></b>
+┠ {disk_bar} {disk}%
+┠ <b>Total Disk Read :</b> {disk_read}
+┠ <b>Total Disk Write :</b> {disk_write}
+<b>╰</b> <b>U :</b> {disk_u} | <b>F :</b> {disk_f} | <b>T :</b> {disk_t}</blockquote>"""
     STATS_SYS = """⌬ <b><i>OS SYSTEM :</i></b>
-<blockquote>╭ <b>OS Uptime :</b> {os_uptime}
-┊ <b>OS Version :</b> {os_version}
-╰ <b>OS Arch :</b> {os_arch}</blockquote>
+<blockquote><b>╭</b> <b>OS Uptime :</b> {os_uptime}
+┠ <b>OS Version :</b> {os_version}
+<b>╰</b> <b>OS Arch :</b> {os_arch}</blockquote>
 
 ⌬ <b><i>NETWORK STATS :</i></b>
-<blockquote>╭ <b>Upload Data:</b> {up_data}
-┊ <b>Download Data:</b> {dl_data}
-┊ <b>Pkts Sent:</b> {pkt_sent}k
-┊ <b>Pkts Received:</b> {pkt_recv}k
-╰ <b>Total I/O Data:</b> {tl_data}</blockquote>
+<blockquote><b>╭</b> <b>Upload Data:</b> {up_data}
+┠ <b>Download Data:</b> {dl_data}
+┠ <b>Pkts Sent:</b> {pkt_sent}k
+┠ <b>Pkts Received:</b> {pkt_recv}k
+<b>╰</b> <b>Total I/O Data:</b> {tl_data}</blockquote>
 
-⌬ <b><i>CPU :</i></b>
-<blockquote>╭ {cpu_bar} {cpu}%
-┊ <b>CPU Frequency :</b> {cpu_freq}
-┊ <b>System Avg Load :</b> {sys_load}
-┊ <b>P-Core(s) :</b> {p_core} | <b>V-Core(s) :</b> {v_core}
-╰ <b>Total Core(s) :</b> {total_core}</blockquote>"""
+<blockquote><b>╭</b> <b>CPU :</b>
+┠ {cpu_bar} {cpu}%
+┠ <b>CPU Frequency :</b> {cpu_freq}
+┠ <b>System Avg Load :</b> {sys_load}
+┠ <b>P-Core(s) :</b> {p_core} | <b>V-Core(s) :</b> {v_core}
+┠ <b>Total Core(s) :</b> {total_core}
+<b>╰</b> <b>Usable CPU(s) :</b> {usable_cpu}</blockquote>"""
     STATS_LIMITS = """⌬ <b><i>BOT LIMITATIONS :</i></b>
-<blockquote>╭ <b>Daily (F/T/G/U) :</b> {q_free} / {q_test} / {q_gold} / {q_ultra}
-┊ <b>Parallel (F/T/G/U) :</b> {c_free} / {c_test} / {c_gold} / {c_ultra}
-┊ <b>Free Cooldown :</b> {cooldown}
-╰ <b>Max Size :</b> {size_n} / premium {size_p}</blockquote>
+<blockquote><b>╭</b> <b>Daily (F/T/G/U) :</b> {q_free} / {q_test} / {q_gold} / {q_ultra}
+┠ <b>Parallel (F/T/G/U) :</b> {c_free} / {c_test} / {c_gold} / {c_ultra}
+┠ <b>Free Cooldown :</b> {cooldown}
+<b>╰</b> <b>Max Size :</b> {size_n} / premium {size_p}</blockquote>
 
-<blockquote>╭ <b>UserBot (4GB) :</b> {userbot}
-╰ <b>Maintenance :</b> {maint}</blockquote>"""
+<blockquote><b>╭</b> <b>UserBot (4GB) :</b> {userbot}
+<b>╰</b> <b>Maintenance :</b> {maint}</blockquote>"""
     STATS = """⌬ <b><i>USER STATISTICS :</i></b>
-<blockquote>╭ <b>Users :</b> {users}
-┊ <b>Premium :</b> {premium}
-┊ <b>With Thumbnail :</b> {thumbs}
-┊ <b>Banned :</b> {banned}
-┊ <b>Active Tasks :</b> {tasks}
-╰ <b>Uptime :</b> {uptime}</blockquote>"""
+<blockquote><b>╭</b> <b>Users :</b> {users}
+┠ <b>Premium :</b> {premium}
+┠ <b>With Thumbnail :</b> {thumbs}
+┠ <b>Banned :</b> {banned}
+┠ <b>Active Tasks :</b> {tasks}
+<b>╰</b> <b>Uptime :</b> {uptime}</blockquote>"""
     STATS_BTNS = {"bot": "Bot Stats", "sys": "OS Stats", "lim": "Bot Limits", "usr": "User Stats"}
 
     SPEED_START = "<i>Initiating Speedtest...</i>"
     SPEED_RESULT = """➲ <b><i>SPEEDTEST INFO</i></b>
-<blockquote>╭ <b>Upload:</b> <code>{up}/s</code> (<code>{up_mbps} Mbps</code>)
-┊ <b>Download:</b> <code>{dl}/s</code> (<code>{dl_mbps} Mbps</code>)
-┊ <b>Ping:</b> <code>{ping} ms</code>
-┊ <b>Time:</b> <code>{time}</code>
-┊ <b>Data Sent:</b> <code>{sent}</code>
-╰ <b>Data Received:</b> <code>{recv}</code></blockquote>
+<blockquote><b>╭</b> <b>Upload:</b> <code>{up}/s</code> (<code>{up_mbps} Mbps</code>)
+┠ <b>Download:</b> <code>{dl}/s</code> (<code>{dl_mbps} Mbps</code>)
+┠ <b>Ping:</b> <code>{ping} ms</code>
+┠ <b>Time:</b> <code>{time}</code>
+┠ <b>Data Sent:</b> <code>{sent}</code>
+<b>╰</b> <b>Data Received:</b> <code>{recv}</code></blockquote>
 
 ➲ <b><i>SPEEDTEST SERVER</i></b>
-<blockquote>╭ <b>Provider:</b> <code>Cloudflare</code>
-┊ <b>Datacenter:</b> <code>{colo}</code>
-╰ <b>Country:</b> <code>{loc}</code></blockquote>"""
+<blockquote><b>╭</b> <b>Provider:</b> <code>Cloudflare</code>
+┠ <b>Datacenter:</b> <code>{colo}</code>
+<b>╰</b> <b>Country:</b> <code>{loc}</code></blockquote>"""
     SPEED_FAIL = "<b>ERROR:</b> <i>Speedtest failed: {err}</i>"
     PING = "<i>Starting Ping..</i>"
-    PING_VALUE = "<b>Pong</b>\n╰ <code>{ms} ms..</code>"
+    PING_VALUE = "<b>Pong</b>\n<b>╰</b> <code>{ms} ms..</code>"
     LOG_DISPLAY = """㊂ <b><u>Last {lines} Lines :</u></b>
 
 <blockquote expandable><code>{body}</code></blockquote>"""
@@ -965,47 +1024,53 @@ class MinimalTheme(_LegacyTheme):
     RESTART_CANCELLED = "<i>Restart cancelled.</i>"
     RESTARTING = "<i>Restarting...</i>"
     RESTART_SUCCESS = """⌬ <b><i>Restarted Successfully!</i></b>
-<blockquote>╭ <b>Date:</b> {date}
-┊ <b>Time:</b> {time}
-┊ <b>TimeZone:</b> {tz}
-╰ <b>Version:</b> {version}</blockquote>"""
+<blockquote><b>╭</b> <b>Date:</b> {date}
+┠ <b>Time:</b> {time}
+┠ <b>TimeZone:</b> {tz}
+<b>╰</b> <b>Version:</b> {version}</blockquote>"""
 
-    STATUS_TASK = """<blockquote>╭ <b>Name:</b> <code>{name}</code>
-┊ {bar} {percent:.2f}%
-┊ <b>{processed_label}:</b> {done} of {total}
-┊ <b>Status:</b> {status} | <b>ETA:</b> {eta}
-┊ <b>Speed:</b> {speed}/s | <b>Elapsed:</b> {elapsed}
-┊ <b>Engine:</b> TjGram | <b>Mode:</b> {mode_tag}
-┊ <b>User:</b> <code>{user}</code> | <b>ID:</b> #{pos}
-╰ /cancel {pos}</blockquote>"""
-    STATUS_CANCELLED = "<blockquote>╭ <b>Name:</b> <code>{name}</code>\n╰ <b>Status:</b> Cancelled</blockquote>"
-    STATUS_FOOTER = """<blockquote>╭ <b>CPU:</b> {cpu}% | <b>F:</b> {free} [{free_p}%]
-┊ <b>RAM:</b> {ram}% | <b>UPTIME:</b> {uptime}
-╰ <b>DL:</b> {dl}/s | <b>UL:</b> {ul}/s</blockquote>"""
-    NO_ACTIVE = "<i>No Active Tasks!</i>\n\n{footer}"
+    STATUS_TASK = """<blockquote><b>╭</b> <b>Name:</b> <code>{name}</code>
+┠ {bar} <i>{percent:.1f}%</i>
+┠ <b>Status:</b> <i>{status}</i>
+┠ <b>{processed_label}:</b> {done} of {total}
+┠ <b>Speed:</b> {speed}/s
+┠ <b>ETA:</b> {eta} | <b>Elapsed:</b> {elapsed}
+┠ <b>Engine:</b> TjGram
+┠ <b>Mode:</b> {mode_tag} | <b>Out:</b> telegram
+┠ <b>User:</b> <code>{user}</code>
+<b>╰</b> <code>/cancel_{gid}</code></blockquote>"""
+    STATUS_CANCELLED = "<blockquote><b>╭</b> <b>Name:</b> <code>{name}</code>\n<b>╰</b> <b>Status:</b> Cancelled</blockquote>"
+    STATUS_FOOTER = """⌬ <b><i>Bot Stats</i></b>
+<blockquote><b>╭</b> <b>Active Tasks:</b> {tasks}
+┠ <b>Ram:</b> {ram}% | <b>Cpu:</b> {cpu}%
+┠ <b>Uptime:</b> {uptime}
+┠ <b>Free:</b> {free} [{free_p}%]
+<b>╰</b> <b>DL:</b> {dl}/s | <b>Ul:</b> {ul}/s</blockquote>"""
+    NO_ACTIVE = "<i>ɴᴏ ᴀᴄᴛɪᴠᴇ ᴛᴀsᴋs ʀᴜɴɴɪɴɢ!</i>\n\n{footer}"
 
     USER_STATS = """㊂ <b><u>Your Plan : {name}</u></b>
 
-<blockquote>╭<b> Plan :</b> <code>{plan}</code>{expires}
-┊<b> Daily Limit :</b> <code>{limit}</code> files
-┊<b> Used Today :</b> <code>{used}</code> ({failed} failed)
-┊<b> Remaining :</b> <code>{remaining}</code>
-╰<b> Next Reset :</b> <code>{reset}</code></blockquote>
+<blockquote><b>╭</b> <b>Plan :</b> <code>{plan}</code>{expires}
+┠ <b>Daily Limit :</b> <code>{limit}</code> files
+┠ <b>Used Today :</b> <code>{used}</code> ({failed} failed)
+┠ <b>Remaining :</b> <code>{remaining}</code>
+<b>╰</b> <b>Next Reset :</b> <code>{reset}</code></blockquote>
 
 <blockquote>➲ Choose a plan below to see what it gives</blockquote>"""
     PLAN = """㊂ <b><u>{title} :</u></b>
 
-<blockquote>╭<b> Price :</b> {price}
-{duration}┊<b> Daily Limit :</b> <code>{daily}</code> files
-┊<b> Max File Size :</b> <code>{size}</code>
-┊<b> Parallel Tasks :</b> <code>{conc}</code>
-╰<b> Cooldown :</b> <code>{cooldown}</code></blockquote>{extra}"""
+<blockquote><b>╭</b> <b>Price :</b> {price}
+{duration}┠ <b>Daily Limit :</b> <code>{daily}</code> files
+┠ <b>Max File Size :</b> <code>{size}</code>
+┠ <b>Parallel Tasks :</b> <code>{conc}</code>
+┠ <b>Speed :</b> <code>{speed}</code>
+<b>╰</b> <b>Cooldown :</b> <code>{cooldown}</code></blockquote>{extra}"""
     PLAN_TITLES = {"free": "Free Plan", "test": "Test Plan", "gold": "Gold Plan", "ultra": "Ultra Plan"}
     PLAN_BTNS = {"free": "Free", "test": "Test", "gold": "Gold", "ultra": "Ultra", "refresh": "♻️ Refresh",
                  "get_test": "Activate Test (Free)", "buy": "Buy with {stars} Stars", "contact": "Contact Admin"}
     PLAN_TEST_ONCE = "\n<blockquote>➲ You can get the Test plan only once.</blockquote>"
     PLAN_TEST_FREE = "\n<blockquote>➲ One-time free trial!</blockquote>"
-    TEST_ACTIVATED = "<b>Test Plan Activated!</b>\n<blockquote>╰<b> Active Until :</b> <code>{date}</code></blockquote>"
+    TEST_ACTIVATED = "<b>Test Plan Activated!</b>\n<blockquote><b>╰</b> <b>Active Until :</b> <code>{date}</code></blockquote>"
 
 
 _EMOJI_EXTRA = {

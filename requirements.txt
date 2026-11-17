@@ -1,5 +1,4 @@
-pyrofork
-TgCrypto
+tjgram[fast]
 hachoir
 psutil
 python-dotenv
