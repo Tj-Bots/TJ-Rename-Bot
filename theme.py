@@ -419,7 +419,7 @@ class _LegacyTheme:
 <blockquote expandable><code>{body}</code></blockquote>"""
     LOG_EMPTY = "<i>Log file is empty.</i>"
     LOG_MISSING = "<i>No log file yet.</i>"
-    LOG_BTNS = {"file": "📄 Full File", "refresh": "♻️ Refresh", "paste": "📨 Web Paste"}
+    LOG_BTNS = {"file": "📄 Full File", "refresh": "♻️ Refresh", "paste": "📨 Web Paste", "clear": "🗑 Clear Logs"}
     LOG_UPLOADING = "<i>Uploading log...</i>"
     LOG_PASTE_FAIL = "Web Paste failed. Check connection."
     RESTART_CONFIRM = """⌬ <b><i>Restart Bot :</i></b>
@@ -1013,7 +1013,7 @@ class MinimalTheme(_LegacyTheme):
 <blockquote expandable><code>{body}</code></blockquote>"""
     LOG_EMPTY = "<i>Log file is empty.</i>"
     LOG_MISSING = "<i>No log file yet.</i>"
-    LOG_BTNS = {"file": "Full File", "refresh": "Refresh", "paste": "Web Paste"}
+    LOG_BTNS = {"file": "Full File", "refresh": "Refresh", "paste": "Web Paste", "clear": "Clear Logs"}
     LOG_UPLOADING = "<i>Uploading log...</i>"
     LOG_PASTE_FAIL = "Web Paste failed. Check connection."
     RESTART_CONFIRM = """㊂ <b><u>Restart Bot :</u></b>

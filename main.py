@@ -2566,6 +2566,38 @@ async def callback_manager(client, query: CallbackQuery):
                 pass
             await query.answer("Refreshed")
 
+        elif data == "log_clear":
+            if query.from_user.id != ADMIN_ID:
+                return await query.answer("Admin only", show_alert=True)
+            size = sum(os.path.getsize(p) for p in (LOG_FILE, LOG_FILE + ".1", LOG_FILE + ".2") if os.path.exists(p))
+            b = ButtonMaker()
+            b.ibutton("✓ Yes, Clear", "log_clearyes")
+            b.ibutton("✘ No", "log_refresh")
+            await query.message.edit_text(f"<b>Clear all logs?</b>\n<code>{human_size(size)}</code> of log files will be emptied.", reply_markup=b.build_menu(2))
+            await query.answer()
+
+        elif data == "log_clearyes":
+            if query.from_user.id != ADMIN_ID:
+                return await query.answer("Admin only", show_alert=True)
+            freed = 0
+            for p in (LOG_FILE, LOG_FILE + ".1", LOG_FILE + ".2"):
+                try:
+                    if os.path.exists(p):
+                        freed += os.path.getsize(p)
+                        if p == LOG_FILE:
+                            open(p, "w").close()
+                        else:
+                            os.remove(p)
+                except OSError as e:
+                    logger.warning(f"clear log {p}: {e}")
+            logger.info(f"Logs cleared by admin ({human_size(freed)})")
+            text, kb = log_view()
+            try:
+                await query.message.edit_text(text, reply_markup=kb)
+            except MessageNotModified:
+                pass
+            await query.answer(f"Cleared {human_size(freed)}", show_alert=True)
+
         elif data == "log_file":
             if not os.path.exists(LOG_FILE) or os.path.getsize(LOG_FILE) == 0:
                 return await query.answer("Log file is empty", show_alert=True)
@@ -3710,6 +3742,7 @@ def log_view():
     b.ibutton(Theme.LOG_BTNS["refresh"], "log_refresh")
     b.ibutton(Theme.LOG_BTNS["file"], "log_file")
     b.ibutton(Theme.LOG_BTNS["paste"], "log_paste")
+    b.ibutton(Theme.LOG_BTNS["clear"], "log_clear")
     b.ibutton("◀️", "adm_home", "footer")
     b.ibutton("❌", "close_all", "footer")
     return Theme.LOG_DISPLAY.format(lines=count, body=esc(body)), b.build_menu(2)
